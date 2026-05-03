@@ -1,4 +1,4 @@
-index.html
+ <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
@@ -459,7 +459,8 @@ table.wl .wl-total td{background:var(--blue);color:#fff!important;font-weight:80
         <div class="info-row"><span class="info-key">Суббота</span><span class="info-val" style="color:var(--red)">Выходной</span></div>
         <div class="info-row"><span class="info-key">Воскресенье</span><span class="info-val">Чередование</span></div>
         <div class="info-row"><span class="info-key">Доп. выходные</span><span class="info-val">2 дня / месяц</span></div>
-        <div class="info-row"><span class="info-key">Переработка</span><span class="info-val" style="color:var(--orange)">300 ₽ / час</span></div>
+        <div class="info-row"><span class="info-key">Переработка 1-й этаж</span><span class="info-val" style="color:var(--orange)">400 ₽ / час</span></div>
+        <div class="info-row"><span class="info-key">Переработка 2-й этаж</span><span class="info-val" style="color:var(--orange)">300 ₽ / час</span></div>
         <div class="info-row"><span class="info-key">Аванс</span><span class="info-val" style="color:var(--orange)">15-го числа (50%)</span></div>
         <div class="info-row"><span class="info-key">Полная выплата</span><span class="info-val" style="color:var(--green)">Конец месяца</span></div>
       </div>
@@ -693,7 +694,7 @@ table.wl .wl-total td{background:var(--blue);color:#fff!important;font-weight:80
       <!-- SECTION 1: Overtime -->
       <div class="card">
         <div class="card-head">⏱ Остаюсь после 17:00 — сегодня</div>
-        <div style="font-size:13px;color:var(--gray);margin-bottom:10px">Выберите, сколько часов остаётесь. Ставка: 300 ₽/час</div>
+        <div style="font-size:13px;color:var(--gray);margin-bottom:10px" id="ot-rate-info">Выберите, сколько часов остаётесь</div>
         <div class="ot-sel-row" id="ot-sel-row">
           <div class="ot-sel-btn" onclick="selectOT(1)">+1 час<br><span style="font-size:11px;color:var(--gray)">до 18:00</span></div>
           <div class="ot-sel-btn" onclick="selectOT(2)">+2 часа<br><span style="font-size:11px;color:var(--gray)">до 19:00</span></div>
@@ -882,7 +883,17 @@ table.wl .wl-total td{background:var(--blue);color:#fff!important;font-weight:80
 // ═══════════════════════════════════════════════
 //  CONFIG & DATA
 // ═══════════════════════════════════════════════
+const OT_RATE_FLOOR1=400, OT_RATE_FLOOR2=300, OT_RATE_DRIVER=300;
 const OT_RATE=300, WORK_H=9, WORK_DAYS_M=22;
+
+// Ставка переработки в зависимости от отдела
+function getOTRate(emp){
+  if(!emp) return OT_RATE_FLOOR2;
+  if(emp.floor === '1й этаж')  return OT_RATE_FLOOR1; // 400 ₽/ч
+  if(emp.floor === '2й этаж')  return OT_RATE_FLOOR2; // 300 ₽/ч
+  if(emp.floor === 'Водитель') return OT_RATE_DRIVER; // 300 ₽/ч
+  return OT_RATE_FLOOR2;
+}
 // Реальный текущий день месяца (не захардкожен)
 const _now = new Date();
 const TODAY = _now.getDate();
@@ -906,21 +917,29 @@ const EVEN_S = SUNS.filter((_,i)=>i%2===1); // 2-е, 4-е воскресенья
 let ADMIN_PASS = '2026admin';
 
 let employees = [
-  {id:1, name:'Денис',           floor:'1й этаж',  salary:35000, sg:'odd',  pass:'1111'},
-  {id:2, name:'Константин',      floor:'1й этаж',  salary:35000, sg:'even', pass:'2222'},
-  {id:3, name:'Александр',       floor:'1й этаж',  salary:35000, sg:'odd',  pass:'3333'},
-  {id:4, name:'Азим',            floor:'1й этаж',  salary:33000, sg:'even', pass:'4444'},
-  {id:5, name:'Ислам',           floor:'1й этаж',  salary:33000, sg:'odd',  pass:'5555'},
-  {id:6, name:'Урал',            floor:'1й этаж',  salary:33000, sg:'even', pass:'6666'},
-  {id:7, name:'Сергей',          floor:'Водитель', salary:40000, sg:'odd',  pass:'7777'},
-  {id:8, name:'Оксана',          floor:'2й этаж',  salary:30000, sg:'even', pass:'8888'},
-  {id:9, name:'Лида',            floor:'2й этаж',  salary:30000, sg:'odd',  pass:'9999'},
-  {id:10,name:'Оксана (Набер.)', floor:'2й этаж',  salary:30000, sg:'even', pass:'1010'},
-  {id:11,name:'Роксана',         floor:'2й этаж',  salary:30000, sg:'odd',  pass:'1100'},
-  {id:12,name:'Фатима',          floor:'2й этаж',  salary:30000, sg:'even', pass:'1212'},
-  {id:13,name:'Наталья',         floor:'2й этаж',  salary:32000, sg:'odd',  pass:'1313'},
-  {id:14,name:'Дениса',          floor:'2й этаж',  salary:30000, sg:'even', pass:'1414'},
-  {id:15,name:'Елена',           floor:'2й этаж',  salary:38000, sg:'odd',  pass:'1515'},
+  // ── 1-Й ЭТАЖ (переработка 400 ₽/час)
+  {id:1, name:'Денис',                floor:'1й этаж',  salary:150000, sg:'odd',  pass:'1111'},
+  {id:2, name:'Константин',           floor:'1й этаж',  salary:85000,  sg:'even', pass:'2222'},
+  {id:3, name:'Александр',            floor:'1й этаж',  salary:85000,  sg:'odd',  pass:'3333'},
+  {id:4, name:'Азим',                 floor:'1й этаж',  salary:85000,  sg:'even', pass:'4444'},
+  {id:5, name:'Ислам',                floor:'1й этаж',  salary:75000,  sg:'odd',  pass:'5555'},
+  {id:6, name:'Урал',                 floor:'1й этаж',  salary:85000,  sg:'even', pass:'6666'},
+
+  // ── ВОДИТЕЛЬ (переработка 300 ₽/час)
+  {id:7, name:'Сергей',               floor:'Водитель', salary:75000,  sg:'odd',  pass:'7777'},
+
+  // ── 2-Й ЭТАЖ (переработка 300 ₽/час)
+  {id:8, name:'Елена',                floor:'2й этаж',  salary:90000,  sg:'odd',  pass:'8888'},
+  {id:9, name:'Оксана',               floor:'2й этаж',  salary:60000,  sg:'even', pass:'9999'},
+  {id:10,name:'Лида',                 floor:'2й этаж',  salary:65000,  sg:'odd',  pass:'1010'},
+  {id:11,name:'Оксана (Набер.)',      floor:'2й этаж',  salary:65000,  sg:'even', pass:'1100'},
+  {id:12,name:'Роксана',              floor:'2й этаж',  salary:45000,  sg:'odd',  pass:'1212'},
+  {id:13,name:'Фатима',               floor:'2й этаж',  salary:45000,  sg:'even', pass:'1313'},
+  {id:14,name:'Наталья',              floor:'2й этаж',  salary:60000,  sg:'odd',  pass:'1414'},
+  {id:15,name:'Света',                floor:'2й этаж',  salary:65000,  sg:'even', pass:'1515'},
+  {id:16,name:'Анна',                 floor:'2й этаж',  salary:45000,  sg:'odd',  pass:'1616'},
+  {id:17,name:'Ирина',                floor:'2й этаж',  salary:45000,  sg:'even', pass:'1717'},
+  {id:18,name:'Татьяна Владимировна', floor:'2й этаж',  salary:80000,  sg:'odd',  pass:'1818'},
 ];
 
 let att={}, ot={}, extraOff={}, paidAdv={}, paidFull={}, fines=[], fineId=1;
@@ -1004,6 +1023,14 @@ const R=(id)=>document.getElementById(id);
 const money=(n)=>Math.round(n).toLocaleString('ru-RU')+' ₽';
 
 function isWork(emp,d){
+  // Водитель — только понедельник-пятница (5-дневка)
+  if(emp.floor === 'Водитель'){
+    const dow = new Date(THIS_YEAR, THIS_MONTH, d).getDay();
+    if(dow === 0 || dow === 6) return false; // вс и сб — выходные
+    if((extraOff[emp.id]||[]).includes(d)) return false;
+    return true;
+  }
+  // Остальные — обычное расписание
   if(SATS.includes(d)) return false;
   if(SUNS.includes(d)) return (emp.sg==='odd'?ODD_S:EVEN_S).includes(d);
   if((extraOff[emp.id]||[]).includes(d)) return false;
@@ -1032,7 +1059,7 @@ function calcPay(emp){
   const base = Math.round(dayRate * workedDays);
 
   // overtime = часы переработки × 300 ₽
-  const otPay = Math.round(totalOT(emp) * OT_RATE);
+  const otPay = Math.round(totalOT(emp) * getOTRate(emp));
 
   // debtH = неотработанный долг по часам
   const debtH = totalDebt(emp.id);
@@ -1341,7 +1368,7 @@ function renderCalendar(){
       <div style="margin-top:14px">
         <div style="font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">⏱ Переработка по дням (ч)</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">${otInputs}</div>
-        ${totOT>0?`<div style="margin-top:8px;font-size:13px;font-weight:700;color:var(--orange)">Итого: ${totOT} ч = + ${money(totOT*OT_RATE)}</div>`:''}
+        ${totOT>0?`<div style="margin-top:8px;font-size:13px;font-weight:700;color:var(--orange)">Итого: ${totOT} ч = + ${money(totOT*getOTRate(emp))}</div>`:''}
       </div>
     </div>`;
 }
@@ -1389,7 +1416,7 @@ function renderSalary(){
           <span class="info-key">Отработано / всего</span>
           <span class="info-val">${workedDays} из ${totalWorkDays} дней</span>
         </div>
-        ${otPay>0?`<div class="info-row"><span class="info-key">Переработка (${totalOT(e)} ч × 300 ₽)</span><span class="info-val" style="color:var(--orange)">+ ${money(otPay)}</span></div>`:''}
+        ${otPay>0?`<div class="info-row"><span class="info-key">Переработка (${totalOT(e)} ч × ${getOTRate(e)} ₽)</span><span class="info-val" style="color:var(--orange)">+ ${money(otPay)}</span></div>`:''}
         ${debtDeduct>0?`<div class="info-row"><span class="info-key">Долг по часам (${debtH} ч × ${money(Math.round(dayRate/WORK_H))}/ч)</span><span class="info-val" style="color:var(--red)">− ${money(debtDeduct)}</span></div>`:''}
         ${fine>0?`<div class="info-row"><span class="info-key">Штрафы</span><span class="info-val" style="color:var(--red)">− ${money(fine)}</span></div>`:''}
         <div class="info-row" style="border-top:2px solid var(--border);padding-top:8px;margin-top:4px">
@@ -1515,7 +1542,8 @@ function addEmployee(){
   const pass=R('ae-pass').value.trim();
   if(!name){toast('Введите имя',true);return;}
   if(pass.length<4){toast('Пароль минимум 4 символа',true);return;}
-  const id=Date.now();
+  // Простой последовательный ID
+  const id = (employees.length>0 ? Math.max(...employees.map(e=>e.id)) : 0) + 1;
   employees.push({id,name,floor,salary,sg,pass});
   att[id]={}; ot[id]=0; extraOff[id]=[]; paidAdv[id]=false; paidFull[id]=false; if(!debtLog[id]) debtLog[id]=[];
   closeModal('m-add-emp'); R('ae-name').value=''; R('ae-salary').value=''; R('ae-pass').value='';
@@ -1688,10 +1716,10 @@ function renderCheckin(){
         <div class="info-row"><span class="info-key">Уход</span><span class="info-val" style="color:var(--blue)">🔵 ${fmtT(rec.leave)}</span></div>
         <div class="info-row"><span class="info-key">Отработано</span><span class="info-val" style="font-weight:800">${h} ч ${m} мин</span></div>
         ${h<WORK_H?`<div class="info-row"><span class="info-key">Долг по смене</span><span class="info-val" style="color:var(--red2)">${WORK_H-h} ч не отработано</span></div>`:''}
-        ${otH>0?`<div class="info-row"><span class="info-key">Переработка</span><span class="info-val" style="color:var(--orange2)">${otH} ч = +${money(otH*OT_RATE)}</span></div>`:''}
+        ${otH>0?`<div class="info-row"><span class="info-key">Переработка</span><span class="info-val" style="color:var(--orange2)">${otH} ч = +${money(otH*getOTRate(emp))}</span></div>`:''}
         <div class="info-row" style="border-top:2px solid #bbf7d0;padding-top:10px;margin-top:4px">
           <span style="font-weight:800">Заработано за день</span>
-          <span style="font-size:20px;font-weight:900;color:var(--green2)">${money(dayEarned+otH*OT_RATE)}</span>
+          <span style="font-size:20px;font-weight:900;color:var(--green2)">${money(dayEarned+otH*getOTRate(emp))}</span>
         </div>
       </div>`;
   }
@@ -1748,7 +1776,7 @@ function renderAnalytics(){
     const rec=att[myId]?.[TODAY];
     const done=rec?.leave, working=rec?.arrive&&!rec?.leave;
     const otH=dayOT(myId,TODAY);
-    const dayEarned=done?Math.round(dayRate+otH*OT_RATE):0;
+    const dayEarned=done?Math.round(dayRate+otH*getOTRate(emp)):0;
     const durMin=done&&rec.arrive?Math.round((new Date(rec.leave)-new Date(rec.arrive))/60000):
                  working&&rec.arrive?Math.round((new Date()-new Date(rec.arrive))/60000):0;
     const dh=Math.floor(durMin/60),dm=durMin%60;
@@ -1774,7 +1802,7 @@ function renderAnalytics(){
     let wDays=0,wEarned=0,wOT=0;
     for(let d=wStart;d<=TODAY;d++){
       const r=att[myId]?.[d];
-      if(r?.leave){ wDays++; wEarned+=Math.round(dayRate+dayOT(myId,d)*OT_RATE); wOT+=dayOT(myId,d); }
+      if(r?.leave){ wDays++; wEarned+=Math.round(dayRate+dayOT(myId,d)*getOTRate(emp)); wOT+=dayOT(myId,d); }
     }
     const wWorkDays=Math.min(7,TODAY-wStart+1);
     const pct=wWorkDays>0?Math.round(wDays/wWorkDays*100):0;
@@ -1960,7 +1988,7 @@ function markLeave(){
   const durMin = Math.round((now - new Date(rec.arrive))/60000);
   const h = Math.floor(durMin/60), m = durMin%60;
   const otH = dayOT(myId,TODAY);
-  const otTag = otH>0?`\n⏱ Переработка: ${otH} ч (+${money(otH*OT_RATE)})`:'';
+  const otTag = otH>0?`\n⏱ Переработка: ${otH} ч (+${money(otH*getOTRate(emp))})`:'';
   sendTg(`🏔️ <b>Секреты Кавказа</b>\n🔵 <b>${emp?.name}</b> закрыл смену в <b>${timeStr}</b>\n⏰ Отработано: ${h}ч ${m}мин${otTag}`);
 
   renderCheckin(); renderHome();
@@ -1982,7 +2010,7 @@ function renderWorklog(){
         <td colspan="5" style="color:var(--gray2);font-style:italic">—</td></tr>`;
     } else {
       const done=r?.leave, working=r?.arrive&&!r?.leave;
-      const earn=done?Math.round(dayRate+otH*OT_RATE):0;
+      const earn=done?Math.round(dayRate+otH*getOTRate(emp)):0;
       if(done){totW+=WORK_H;totOTh+=otH;totE+=earn;}
       rows+=`<tr>
         <td style="font-weight:700">${d}<span style="font-size:10px;color:var(--gray);margin-left:2px">${dow}</span></td>
@@ -2021,7 +2049,7 @@ function renderMySalary(){
       <div class="info-row"><span class="info-key">Отработано дней</span><span class="info-val">${workedDays} из ${totalWorkDays}</span></div>
       <div class="info-row"><span class="info-key">Ставка за 1 час</span><span class="info-val">${money(hrRate)}</span></div>
       <div class="info-row"><span class="info-key">Оплата за рабочие дни</span><span class="info-val">${money(base)}</span></div>
-      ${otPay>0?`<div class="info-row"><span class="info-key">+ Переработка (${totalOT(emp)} ч × 300 ₽)</span><span class="info-val" style="color:var(--orange)">+ ${money(otPay)}</span></div>`:''}
+      ${otPay>0?`<div class="info-row"><span class="info-key">+ Переработка (${totalOT(emp)} ч × ${getOTRate(emp)} ₽)</span><span class="info-val" style="color:var(--orange)">+ ${money(otPay)}</span></div>`:''}
       ${debtDeduct>0?`<div class="info-row" style="background:#fef2f2;margin:2px -4px;padding:8px 12px;border-radius:8px">
         <span class="info-key" style="color:var(--red2)">⚠️ Долг по часам (${debtH} ч × ${money(hrRate)}/ч)</span>
         <span class="info-val" style="color:var(--red2)">− ${money(debtDeduct)}</span>
@@ -2123,7 +2151,7 @@ function updatePiggyLive(){
   const workEarned = workSec / 3600 * hourRate;
 
   // Переработка
-  const otEarned = otH * OT_RATE;
+  const otEarned = otH * getOTRate(emp);
 
   const total = workEarned + otEarned;
   heroEl.textContent = Math.round(total).toLocaleString('ru-RU') + ' ₽';
@@ -2158,7 +2186,7 @@ function renderPiggyBank(){
   const endWork = arrive ? new Date(arrive) : new Date(); endWork.setHours(17,0,0,0);
   const workSec = arrive ? Math.max(0, Math.min(leave||now, endWork) - arrive) / 1000 : 0;
   const todayEarnedBase = Math.round(workSec / 3600 * hourRate);
-  const todayOtEarned   = dayOT(myId, TODAY) * OT_RATE;
+  const todayOtEarned   = dayOT(myId, TODAY) * getOTRate(emp);
   const todayTotal      = todayEarnedBase + todayOtEarned;
 
   // Оставшиеся рабочие дни в месяце
@@ -2332,13 +2360,22 @@ function renderOvertime(){
   const emp=employees.find(e=>e.id===myId); if(!emp) return;
   const selH=todayOTSel[myId]||0;
   const rec=att[myId]?.[TODAY]||{};
+  const empRate=getOTRate(emp);
+
+  // Обновить подсказку с реальной ставкой сотрудника
+  const rateInfo=R('ot-rate-info');
+  if(rateInfo){
+    rateInfo.innerHTML=`Выберите, сколько часов остаётесь. Ваша ставка: <b style="color:var(--orange)">${empRate} ₽/час</b> <span style="color:var(--gray2);font-size:11px">(${emp.floor})</span>`;
+  }
 
   // Overtime buttons
   const btns=['1','2','3'].map((h,i)=>{
-    const hrs=i+1; const endT='1'+hrs+':00'.slice(0,hrs===1?3:3);
+    const hrs=i+1;
     const endH=['18:00','19:00','20:00'][i];
+    const earn=hrs*empRate;
     return`<div class="ot-sel-btn ${selH===hrs?'active':''}" onclick="selectOT(${hrs})">
       +${hrs} ч<br><span style="font-size:11px;color:inherit">до ${endH}</span>
+      <div style="font-size:11px;color:var(--orange2);margin-top:4px;font-weight:800">+${earn} ₽</div>
     </div>`;
   }).join('');
   R('ot-sel-row').innerHTML=btns;
@@ -2347,7 +2384,7 @@ function renderOvertime(){
   const confirm=R('ot-confirm-block');
   if(selH>0){
     confirm.innerHTML=`
-      <div class="ot-done-tag">✅ Переработка ${selH} ч записана (+${money(selH*OT_RATE)})</div>
+      <div class="ot-done-tag">✅ Переработка ${selH} ч записана (+${money(selH*getOTRate(employees.find(e=>e.id===myId)))})</div>
       <div style="font-size:12px;color:var(--gray);margin-top:6px">Уйдёте в ${['18:00','19:00','20:00'][selH-1]}</div>
       <button onclick="cancelOT()" style="margin-top:8px;background:none;border:none;color:var(--red);font-size:12px;cursor:pointer;font-weight:600">✕ Отменить</button>`;
   } else {
@@ -2390,7 +2427,7 @@ function selectOT(h){
   att[myId][TODAY].ot=h;
   saveData();
   renderOvertime(); renderWorklog(); renderHome();
-  toast(`✅ Переработка ${h} ч записана — +${money(h*OT_RATE)}`);
+  toast(`✅ Переработка ${h} ч записана — +${money(h*getOTRate(employees.find(e=>e.id===myId)))}`);
 }
 function cancelOT(){
   todayOTSel[myId]=0;
@@ -2805,11 +2842,15 @@ const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
 const standalone=window.navigator.standalone||window.matchMedia('(display-mode:standalone)').matches;
 
 if(!standalone){
-  if(isIOS) setTimeout(()=>R('ios-banner').classList.add('show'),4000);
+  // Не показываем установку приложения если открыто в Telegram Mini App
+  const isInTelegram = !!(window.Telegram?.WebApp?.initData);
+  if(isIOS && !isInTelegram) setTimeout(()=>R('ios-banner').classList.add('show'),4000);
   window.addEventListener('beforeinstallprompt',e=>{
     e.preventDefault(); deferredPWA=e;
-    R('pwa-banner').classList.add('show');
-    R('install-btn').style.display='inline-block';
+    if(!isInTelegram){
+      R('pwa-banner').classList.add('show');
+      R('install-btn').style.display='inline-block';
+    }
   });
 }
 function promptInstall(){ isIOS?R('ios-banner').classList.add('show'):doInstall(); }
@@ -3261,54 +3302,116 @@ function initTelegramApp(){
     }
   }
 
-  // Синхронизация данных через Telegram CloudStorage
+  // Синхронизация данных через JSONBin.io
   syncFromCloud();
+  // Автообновление каждые 30 секунд
+  startAutoSync();
 }
 
-// ── Облачное хранилище Telegram (общие данные для всех)
-function syncFromCloud(){
-  if(!tgApp?.CloudStorage) return;
+// ═══════════════════════════════════════════════
+//  ОБЛАЧНОЕ ХРАНИЛИЩЕ JSONBin.io
+//  Все сотрудники видят одни данные в реальном времени
+// ═══════════════════════════════════════════════
+const JSONBIN_KEY = '$2a$10$M0hsBXVNMDjcFQi/NKdWTeOtlEH48MVn6BKvCqf/WR.Wu39Dnl5o6';
+const JSONBIN_ID  = '69f7934a36566621a81ec1dd';
+const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_ID}`;
 
-  tgApp.CloudStorage.getItem('sk_shared_data', (err, val)=>{
-    if(err || !val) return;
-    try {
-      const cloud = JSON.parse(val);
-      // Если облачные данные новее — применяем
-      if(cloud && cloud.employees && cloud.employees.length > 0){
-        // Мержим сотрудников (облако приоритетнее для списка)
-        employees = cloud.employees;
-        if(cloud.fines)      fines      = cloud.fines;
-        if(cloud.salHistory) salHistory = cloud.salHistory;
-        // att и личные данные берём из localStorage
-        employees.forEach(e=>{
-          if(!att[e.id])      att[e.id]      = {};
-          if(!extraOff[e.id]) extraOff[e.id] = [];
-          if(!debtLog[e.id])  debtLog[e.id]  = [];
-          if(paidAdv[e.id]  === undefined) paidAdv[e.id]  = false;
-          if(paidFull[e.id] === undefined) paidFull[e.id] = false;
-        });
-        buildLoginSelEmp();
-        console.log('Данные из Telegram Cloud загружены');
-      }
-    } catch(e){ console.warn('Cloud parse error:', e); }
-  });
+let cloudSyncInProgress = false;
+let cloudSyncTimer = null;
+
+// Загрузка данных из облака
+async function syncFromCloud(){
+  try {
+    const r = await fetch(JSONBIN_URL+'/latest', {
+      headers: { 'X-Master-Key': JSONBIN_KEY }
+    });
+    if(!r.ok) { console.warn('Cloud fetch failed:', r.status); return; }
+    const data = await r.json();
+    const cloud = data.record;
+    if(!cloud || !cloud.employees || !cloud.employees.length) {
+      // Облако пустое — заливаем туда стартовый список
+      saveToCloud();
+      return;
+    }
+
+    // Применяем облачные данные (они приоритетные — там общая правда)
+    employees    = cloud.employees;
+    if(cloud.fines)         fines         = cloud.fines;
+    if(cloud.salHistory)    salHistory    = cloud.salHistory;
+    if(cloud.paidAdv)       paidAdv       = cloud.paidAdv;
+    if(cloud.paidFull)      paidFull      = cloud.paidFull;
+    if(cloud.att)           att           = cloud.att;
+    if(cloud.extraOff)      extraOff      = cloud.extraOff;
+    if(cloud.debtLog)       debtLog       = cloud.debtLog;
+    if(cloud.dayOffRequests)dayOffRequests= cloud.dayOffRequests;
+    if(cloud.ADMIN_PASS)    ADMIN_PASS    = cloud.ADMIN_PASS;
+
+    // Восстанавливаем структуры
+    employees.forEach(e=>{
+      if(!att[e.id])             att[e.id]             = {};
+      if(!extraOff[e.id])        extraOff[e.id]        = [];
+      if(!debtLog[e.id])         debtLog[e.id]         = [];
+      if(!dayOffRequests[e.id])  dayOffRequests[e.id]  = [];
+      if(paidAdv[e.id]  === undefined) paidAdv[e.id]  = false;
+      if(paidFull[e.id] === undefined) paidFull[e.id] = false;
+    });
+
+    // Сохраняем локально как кэш
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      employees, att, extraOff, paidAdv, paidFull,
+      fines, fineId, debtLog, debtLogId,
+      todayOTSel, earlyLeave, dayOffRequests,
+      salHistory, salHistoryId, ADMIN_PASS
+    }));
+
+    buildLoginSelEmp();
+    console.log('☁️ Загружено из облака:', employees.length, 'сотрудников');
+
+    // Перерисовываем интерфейс
+    if(role === 'admin')    renderAllAdmin();
+    if(role === 'employee') renderCheckin();
+  } catch(e){
+    console.warn('☁️ Cloud sync error:', e);
+  }
 }
 
+// Сохранение данных в облако (с дебаунсом — не чаще 1 раза в 2 секунды)
 function saveToCloud(){
-  if(!tgApp?.CloudStorage) return;
-  // Сохраняем общие данные (список сотрудников, штрафы, архив зарплат)
-  const shared = {
-    employees,
-    fines,
-    salHistory,
-    paidAdv,
-    paidFull,
-    ADMIN_PASS
-  };
-  tgApp.CloudStorage.setItem('sk_shared_data', JSON.stringify(shared), (err)=>{
-    if(err) console.warn('Cloud save error:', err);
-    else console.log('Сохранено в Telegram Cloud');
-  });
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(async ()=>{
+    if(cloudSyncInProgress) return;
+    cloudSyncInProgress = true;
+    try {
+      const shared = {
+        employees, fines, salHistory,
+        paidAdv, paidFull, att,
+        extraOff, debtLog, dayOffRequests,
+        ADMIN_PASS,
+        _lastUpdate: new Date().toISOString()
+      };
+      const r = await fetch(JSONBIN_URL, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': JSONBIN_KEY
+        },
+        body: JSON.stringify(shared)
+      });
+      if(r.ok) console.log('☁️ Сохранено в облако');
+      else console.warn('☁️ Save failed:', r.status);
+    } catch(e){
+      console.warn('☁️ Cloud save error:', e);
+    } finally {
+      cloudSyncInProgress = false;
+    }
+  }, 1500);
+}
+
+// Автообновление каждые 30 секунд (получаем чужие изменения)
+let autoSyncTimer = null;
+function startAutoSync(){
+  clearInterval(autoSyncTimer);
+  autoSyncTimer = setInterval(syncFromCloud, 30000); // каждые 30 сек
 }
 
 // Привязка Telegram ID к сотруднику после входа
@@ -3333,6 +3436,12 @@ function setupTgBackButton(show, callback){
 
 // Запускаем Telegram инициализацию
 initTelegramApp();
+
+// Если открыто НЕ в Telegram (например в браузере) — всё равно синхронизируем облако
+if(!window.Telegram?.WebApp?.initData){
+  syncFromCloud();
+  startAutoSync();
+}
 </script>
 </body>
 </html>
