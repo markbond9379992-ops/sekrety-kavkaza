@@ -1146,11 +1146,10 @@ function calcPay(emp){
   const totalWorkDays = wdCount(emp) || 1;
 
   // workedDays = дни где сотрудник отметил приход
-  // (считаем даже если смена ещё не закрыта — день отработан)
   const workedDays = Object.entries(att[emp.id]||{})
     .filter(([d,r])=> isWork(emp,parseInt(d)) && r && r.arrive).length;
 
-  // dayRate = оклад / рабочих дней в месяце (точная ставка)
+  // dayRate = оклад / рабочих дней в месяце
   const dayRate = emp.salary / totalWorkDays;
 
   // hourRate = ставка за час
@@ -1159,27 +1158,50 @@ function calcPay(emp){
   // base = ставка за день × отработанные дни
   const base = Math.round(dayRate * workedDays);
 
-  // overtime = часы переработки × 300 ₽
-  const otPay = Math.round(totalOT(emp) * getOTRate(emp));
+  // ── ВАЖНО: ЛОГИКА ВЗАИМОЗАЧЁТА ДОЛГА И ПЕРЕРАБОТКИ ──
+  // 1. Считаем общую переработку за месяц (все часы что остался после 17:00)
+  const otTotalH = totalOT(emp);
+  // 2. Считаем общий неотработанный долг (отлучки, ранние уходы, опоздания)
+  const debtTotalH = totalDebt(emp.id);
 
-  // debtH = неотработанный долг по часам
-  const debtH = totalDebt(emp.id);
-  // debtDeduct = долг × ставка за час
-  const debtDeduct = Math.round(debtH * hourRate);
+  // 3. Переработка СНАЧАЛА закрывает долг, остаток идёт в доплату
+  let otPaidH = otTotalH;          // сколько часов переработки идёт в оплату
+  let debtRemainH = debtTotalH;    // сколько долга остаётся неотработанным
+
+  if(otPaidH >= debtRemainH){
+    // Переработки хватает чтобы закрыть весь долг
+    otPaidH -= debtRemainH;        // остаток переработки в оплату
+    debtRemainH = 0;               // долг закрыт
+  } else {
+    // Переработки не хватает — долг остаётся, переработка пошла на закрытие
+    debtRemainH -= otPaidH;        // остаток долга
+    otPaidH = 0;                   // вся переработка ушла на закрытие долга
+  }
+
+  // 4. Оплата за оставшуюся переработку (по ставке отдела)
+  const otPay = Math.round(otPaidH * getOTRate(emp));
+
+  // 5. Удержание за неотработанный долг (по часовой ставке)
+  const debtDeduct = Math.round(debtRemainH * hourRate);
 
   // fines = штрафы
   const fine = fines.filter(f=>f.empId===emp.id).reduce((s,f)=>s+f.amount, 0);
 
-  // gross = начислено: база + переработка - долг - штрафы
+  // gross = начислено: база + остаток переработки - неотработанный долг - штрафы
   const gross = Math.max(0, base + otPay - debtDeduct - fine);
 
-  // advance = 50% от полного оклада (фиксированная сумма)
+  // advance = 50% от полного оклада
   const adv = Math.round(emp.salary * 0.5);
 
   // rest = к выплате в конце = gross - advance
   const rest = gross - adv;
 
-  return { totalWorkDays, workedDays, dayRate, hourRate, base, otPay, debtH, debtDeduct, fine, gross, adv, rest };
+  return {
+    totalWorkDays, workedDays, dayRate, hourRate, base,
+    otPay, otTotalH, otPaidH,
+    debtH: debtRemainH, debtTotalH, debtDeduct,
+    fine, gross, adv, rest
+  };
 }
 
 function todaySt(id){
@@ -1331,6 +1353,8 @@ function approveReq(empId,dateKey){
   saveData();
   renderHome();
   toast('✅ Выходной одобрен: '+emp?.name);
+  // Уведомление сотруднику
+  notifyEmployee(empId, `🏔️ <b>Секреты Кавказа</b>\n✅ Ваш запрос на выходной <b>${dateKey}</b> ОДОБРЕН администратором`);
 }
 function rejectReq(empId,dateKey){
   dayOffRequests[empId]=(dayOffRequests[empId]||[]).filter(r=>r.date!==dateKey);
@@ -1338,6 +1362,8 @@ function rejectReq(empId,dateKey){
   saveData();
   renderHome();
   toast('❌ Выходной отклонён: '+emp?.name,true);
+  // Уведомление сотруднику
+  notifyEmployee(empId, `🏔️ <b>Секреты Кавказа</b>\n❌ Ваш запрос на выходной <b>${dateKey}</b> отклонён администратором`);
 }
 
 function renderAllAdmin(){
@@ -3193,12 +3219,17 @@ function checkQRCode(code){
 // ═══════════════════════════════════════════════
 //  TELEGRAM УВЕДОМЛЕНИЯ
 // ═══════════════════════════════════════════════
+const DEFAULT_BOT_TOKEN = '8750015172:AAEIeLQNJuCN662y0bE4khf7wxtet0sT0rY';
 let tgToken  = '';
 let tgChatId = '';
 
 function loadTgSettings(){
-  tgToken  = localStorage.getItem('sk_tg_token')  || '';
+  tgToken  = localStorage.getItem('sk_tg_token')  || DEFAULT_BOT_TOKEN;
   tgChatId = localStorage.getItem('sk_tg_chatid') || '';
+  // Если токен ещё не сохранён — сохраним дефолтный
+  if(!localStorage.getItem('sk_tg_token')){
+    localStorage.setItem('sk_tg_token', DEFAULT_BOT_TOKEN);
+  }
 }
 
 function saveTgSettings(){
@@ -3559,11 +3590,42 @@ function getAISystemPrompt(emp){
   const dayRate = Math.round(emp.salary / wd);
   const hourRate = Math.round(dayRate / WORK_H);
   const otRate = getOTRate(emp);
-  const debtH = totalDebt(emp.id);
-  const otH = totalOT(emp);
+  const otTotalH = totalOT(emp);
+  const debtTotalH = totalDebt(emp.id);
+
+  // Вычисляем взаимозачёт переработка↔долг
+  let otPaidH = otTotalH, debtRemainH = debtTotalH;
+  if(otPaidH >= debtRemainH){
+    otPaidH -= debtRemainH; debtRemainH = 0;
+  } else {
+    debtRemainH -= otPaidH; otPaidH = 0;
+  }
+  const debtDeduct = Math.round(debtRemainH * hourRate);
+  const otExtraPay = Math.round(otPaidH * otRate);
+
   const workedDays = Object.entries(att[emp.id]||{})
     .filter(([d,r])=>isWork(emp,parseInt(d))&&r&&r.arrive).length;
   const fineSum = fines.filter(f=>f.empId===emp.id).reduce((s,f)=>s+f.amount,0);
+
+  // Привилегированные сотрудники
+  const FLEX_NAMES = ['Денис', 'Сергей', 'Елена', 'Татьяна Владимировна'];
+  const isFlex = FLEX_NAMES.includes(emp.name);
+
+  const todayBreaks = (debtLog[emp.id]||[])
+    .filter(d => d.date === new Date().toLocaleDateString('ru-RU') && d.note?.includes('Отлучка'))
+    .map(d => `${d.note} (${d.debtH} ч)`)
+    .join(', ') || 'нет';
+
+  let flexInfo = '';
+  let flexCommands = '';
+  if(isFlex){
+    flexInfo = `\n\nВНИМАНИЕ: ${emp.name} имеет ПРАВО отлучаться по делам в течение рабочего дня (1 час и более) с записью долга. Долг можно отработать переработкой потом.\nОтлучки сегодня: ${todayBreaks}`;
+    flexCommands = `
+- BREAK_OUT_1 — отлучиться на 1 час (записать долг 1 ч)
+- BREAK_OUT_2 — отлучиться на 2 часа (записать долг 2 ч)
+- BREAK_OUT_3 — отлучиться на 3 часа (записать долг 3 ч)
+- BACK_FROM_BREAK — вернулся с отлучки`;
+  }
 
   return `Ты дружелюбный помощник на кондитерском производстве "Секреты Кавказа". Отвечай коротко и по-русски.
 
@@ -3576,34 +3638,45 @@ function getAISystemPrompt(emp){
 - Ставка переработки: ${otRate} ₽/час
 - Рабочих дней в месяце: ${wd}
 - Отработано дней: ${workedDays}
-- Часов переработки: ${otH}
-- Долг по часам: ${debtH}
-- Штрафов: ${fineSum} ₽
+- Часов переработки за месяц: ${otTotalH}
+- Долг по часам всего: ${debtTotalH}
+- Неотработанный долг (после взаимозачёта с переработкой): ${debtRemainH} ч
+- Удержание из зарплаты за долг: ${debtDeduct} ₽
+- Доплата за остаток переработки: ${otExtraPay} ₽
+- Штрафов: ${fineSum} ₽${flexInfo}
+
+ВАЖНАЯ ФИНАНСОВАЯ ЛОГИКА:
+1. Если сотрудник взял час по делам или ушёл раньше — это записывается как ДОЛГ ПО ЧАСАМ
+2. Если сотрудник остаётся после 17:00 — это ПЕРЕРАБОТКА (по ставке ${otRate} ₽/ч)
+3. ПЕРЕРАБОТКА СНАЧАЛА ЗАКРЫВАЕТ ДОЛГ — час переработки = час долга закрыт (даже если ставки разные)
+4. Если переработки хватило — остаток идёт в доплату по ставке ${otRate} ₽/ч
+5. Если переработки НЕ ХВАТАЕТ или её НЕТ — оставшийся долг ВЫЧИТАЕТСЯ ИЗ ЗАРПЛАТЫ по часовой ставке ${hourRate} ₽/ч
+6. Долг считается до конца месяца. Если до зарплаты не отработал — вычитается.
 
 ПРАВИЛА:
 - Рабочий день: 08:00-17:00, обед 12:00-13:00
-- Опоздание = штраф 1 час
+- Опоздание = штраф 1 час долга
 - 2 дополнительных выходных в месяц
 - Аванс 50% оклада 15-го числа
 
-КОМАНДЫ которые можешь выполнять (ВЫБИРАЙ ОДНУ если уместно):
-- TAKE_DAYOFF — взять выходной (если просит выходной/отгул)
-- ADD_OVERTIME_1 — записать переработку 1 час
-- ADD_OVERTIME_2 — записать переработку 2 часа
-- ADD_OVERTIME_3 — записать переработку 3 часа
-- LEAVE_EARLY_14 — ухожу в 14:00 (долг 3 ч)
-- LEAVE_EARLY_15 — ухожу в 15:00 (долг 2 ч)
-- LEAVE_EARLY_16 — ухожу в 16:00 (долг 1 ч)
-- CLOSE_DEBT_1 — закрыть 1 час долга
+КОМАНДЫ (ВЫБИРАЙ ОДНУ):
+- TAKE_DAYOFF — взять выходной
+- ADD_OVERTIME_1 / ADD_OVERTIME_2 / ADD_OVERTIME_3 — записать переработку (закроет долг или даст доплату)
+- LEAVE_EARLY_14 / LEAVE_EARLY_15 / LEAVE_EARLY_16 — ухожу раньше насовсем (долг 3/2/1 ч)
+- CLOSE_DEBT_1 — вручную закрыть 1 час долга${flexCommands}
 - NONE — просто ответ без действия
+
+ВАЖНО: Если сотрудник просит отпроситься на час/два по делам с возвратом — используй BREAK_OUT_*, а не LEAVE_EARLY.
+
+Когда отвечаешь о деньгах — обязательно объясни логику взаимозачёта: переработка покрывает долг, потом идёт доплата.
 
 ФОРМАТ ОТВЕТА (СТРОГО):
 ACTION: <команда>
 TEXT: <короткий ответ для сотрудника>
 
 Например:
-ACTION: TAKE_DAYOFF
-TEXT: Понял, отправляю запрос на выходной завтра администратору.`;
+ACTION: BREAK_OUT_1
+TEXT: Хорошо, отлучайтесь на час. Записал долг 1 ч. Если сегодня останетесь после 17:00 — час долга закроется автоматически и денег не потеряете.`;
 }
 
 async function sendAIMessage(text){
@@ -3736,6 +3809,42 @@ function executeAIAction(action){
     } else {
       addAIMessage('У вас нет открытых долгов', 'bot', 'ai-action');
     }
+  }
+  // ── ОТЛУЧКА ДЛЯ ПРИВИЛЕГИРОВАННЫХ СОТРУДНИКОВ
+  else if(action.startsWith('BREAK_OUT_')){
+    const FLEX_NAMES = ['Денис', 'Сергей', 'Елена', 'Татьяна Владимировна'];
+    const emp = employees.find(e=>e.id===myId);
+    if(!FLEX_NAMES.includes(emp?.name)){
+      addAIMessage('❌ У вас нет права на отлучки в течение дня. Используйте «уйти раньше».', 'bot', 'ai-error');
+      return;
+    }
+    const hours = parseInt(action.split('_')[2]);
+    const nowTime = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    if(!debtLog[myId]) debtLog[myId] = [];
+    debtLog[myId].push({
+      id: debtLogId++,
+      date: new Date().toLocaleDateString('ru-RU'),
+      debtMin: hours*60,
+      debtH: hours,
+      closedH: 0,
+      note: `Отлучка с ${nowTime} на ${hours} ч`
+    });
+    saveData();
+    addAIMessage(`✅ Отлучка зафиксирована: ${hours} ч с ${nowTime}. Долг ${hours} ч можно отработать переработкой.`, 'bot', 'ai-action');
+    // Уведомление админу
+    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n🚶 <b>${emp?.name}</b> отлучился по делам с ${nowTime} на <b>${hours} ч</b>\n📝 Долг записан, отработает переработкой`);
+  }
+  else if(action === 'BACK_FROM_BREAK'){
+    const FLEX_NAMES = ['Денис', 'Сергей', 'Елена', 'Татьяна Владимировна'];
+    const emp = employees.find(e=>e.id===myId);
+    if(!FLEX_NAMES.includes(emp?.name)){
+      addAIMessage('Эта команда не для вас', 'bot', 'ai-error');
+      return;
+    }
+    const nowTime = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    addAIMessage(`✅ Вернулись с отлучки в ${nowTime}. Продолжайте работать!`, 'bot', 'ai-action');
+    // Уведомление админу
+    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n✅ <b>${emp?.name}</b> вернулся с отлучки в ${nowTime}`);
   }
 }
 
