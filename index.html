@@ -153,6 +153,9 @@ body.tg-mode .topbar {
 .ci-hint{font-size:12px;color:rgba(255,255,255,.6)}
 
 /* ── AI CHAT ── */
+.ai-quick-btn{background:#fff;border:1px solid var(--border);border-radius:20px;padding:8px 14px;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;transition:all .2s}
+.ai-quick-btn:hover,.ai-quick-btn:active{background:var(--blue);color:#fff;border-color:var(--blue)}
+
 .ai-msg{margin-bottom:12px;display:flex}
 .ai-msg.ai-user{justify-content:flex-end}
 .ai-msg-bubble{max-width:80%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.5;word-wrap:break-word}
@@ -772,6 +775,54 @@ table.wl .wl-total td{background:var(--blue);color:#fff!important;font-weight:80
     </div>
 
     <!-- ── ADMIN: СТАТИСТИКА ── -->
+    <!-- ── ADMIN: ИИ ПОМОЩНИК ── -->
+    <div class="page" id="pg-ai-admin">
+      <div style="background:linear-gradient(135deg,#7c3aed,#2563ab);border-radius:20px;padding:20px;margin-bottom:14px;color:#fff;text-align:center">
+        <div style="font-size:36px;margin-bottom:6px">🤖</div>
+        <div style="font-size:18px;font-weight:900">Помощник руководителя</div>
+        <div style="font-size:13px;color:rgba(255,255,255,.75);margin-top:4px">
+          Анализ команды, отчёты и советы
+        </div>
+      </div>
+
+      <!-- Чат -->
+      <div id="ai-admin-chat" style="background:#fff;border-radius:16px;padding:14px;min-height:300px;max-height:50vh;overflow-y:auto;box-shadow:var(--shadow);margin-bottom:14px">
+        <div class="ai-msg ai-bot">
+          <div class="ai-msg-bubble">
+            👋 Здравствуйте! Я ваш помощник по управлению командой.<br><br>
+            Спросите меня:<br>
+            • <i>Кто опаздывал в этом месяце?</i><br>
+            • <i>Топ-5 по переработкам</i><br>
+            • <i>Сколько штрафов выписано?</i><br>
+            • <i>Сравни 1-й и 2-й этаж</i><br>
+            • <i>Кто сегодня не вышел?</i><br>
+            • <i>Общий ФОТ за месяц</i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Поле ввода + микрофон -->
+      <div style="display:flex;gap:8px;align-items:center;background:#fff;border-radius:14px;padding:8px;box-shadow:var(--shadow)">
+        <button id="ai-admin-mic-btn" onclick="toggleAIAdminVoice()" style="width:46px;height:46px;border-radius:50%;border:none;background:linear-gradient(135deg,#dc2626,#ea580c);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">🎤</button>
+        <input id="ai-admin-input" placeholder="Спросите о команде..." style="flex:1;border:none;outline:none;font-size:14px;padding:10px 4px;background:transparent" onkeydown="if(event.key==='Enter') sendAIAdminMessage()">
+        <button onclick="sendAIAdminMessage()" style="width:46px;height:46px;border-radius:50%;border:none;background:var(--blue);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">➤</button>
+      </div>
+      <div id="ai-admin-status" style="text-align:center;font-size:12px;color:var(--gray);margin-top:8px;min-height:16px"></div>
+
+      <!-- Быстрые вопросы -->
+      <div style="margin-top:14px">
+        <div style="font-size:12px;color:var(--gray);margin-bottom:8px;font-weight:700;text-transform:uppercase">Быстрые вопросы</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button onclick="sendAIAdminMessage('Кто сегодня не пришёл на работу?')" class="ai-quick-btn">🚫 Не пришли сегодня</button>
+          <button onclick="sendAIAdminMessage('Топ 5 по переработкам в этом месяце')" class="ai-quick-btn">⏱ Топ переработок</button>
+          <button onclick="sendAIAdminMessage('Кто чаще всего опаздывал?')" class="ai-quick-btn">⚠️ Опоздания</button>
+          <button onclick="sendAIAdminMessage('Сколько всего штрафов в этом месяце?')" class="ai-quick-btn">💸 Штрафы</button>
+          <button onclick="sendAIAdminMessage('Общий ФОТ за этот месяц')" class="ai-quick-btn">💰 ФОТ месяца</button>
+          <button onclick="sendAIAdminMessage('Сравни производительность 1-го и 2-го этажа')" class="ai-quick-btn">📊 По этажам</button>
+        </div>
+      </div>
+    </div>
+
     <div class="page" id="pg-stats">
       <div class="page-title">Статистика</div>
       <div class="page-sub">Кто сколько часов отработал за апрель</div>
@@ -1217,10 +1268,10 @@ function doLogout(){
 // ═══════════════════════════════════════════════
 const ADMIN_NAV=[
   {id:'pg-home',       icon:'📊', label:'Главная'},
+  {id:'pg-ai-admin',   icon:'🤖', label:'Помощник'},
   {id:'pg-staff',      icon:'👥', label:'Персонал'},
   {id:'pg-schedule',   icon:'📅', label:'График'},
   {id:'pg-salary',     icon:'💰', label:'Зарплата'},
-  {id:'pg-salhistory', icon:'🗂', label:'Архив'},
   {id:'pg-fines',      icon:'⚠️', label:'Штрафы'},
   {id:'pg-stats',      icon:'📈', label:'Статистика'},
   {id:'pg-profile',    icon:'⚙️', label:'Профиль'},
@@ -1257,6 +1308,7 @@ function goPage(id){
   if(id==='pg-fines')      { renderFines(); }
   if(id==='pg-profile')    { renderAdminProfile(); }
   if(id==='pg-stats')      { renderStats(); }
+  if(id==='pg-ai-admin')   { renderAIAdmin(); }
   if(id==='pg-checkin')    renderCheckin();
   if(id==='pg-ai')         renderAIChat();
   if(id==='pg-worklog')    renderWorklog();
@@ -3487,10 +3539,9 @@ function setupTgBackButton(show, callback){
 // ═══════════════════════════════════════════════
 //  ИИ-ПОМОЩНИК (Yandex GPT + SpeechKit)
 // ═══════════════════════════════════════════════
-const YA_API_KEY  = 'AQVNxS4vFP2YeGykx27uL5FuE_7x0XLjsgBi3XA4';
-const YA_FOLDER   = 'b1gc3vc3jl31376fehe1';
-const YA_GPT_URL  = 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion';
-const YA_STT_URL  = 'https://stt.api.cloud.yandex.net/speech/v1/stt:recognize';
+const GROQ_API_KEY = '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';
+const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL   = 'llama-3.3-70b-versatile';
 
 let aiHistory = []; // история чата для контекста
 
@@ -3578,17 +3629,20 @@ async function sendAIMessage(text){
     }
     aiHistory.push({role: 'user', text: userText});
 
-    const r = await fetch(YA_GPT_URL, {
+    const r = await fetch(GROQ_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Api-Key ${YA_API_KEY}`,
-        'x-folder-id': YA_FOLDER
+        'Authorization': `Bearer ${GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        modelUri: `gpt://${YA_FOLDER}/yandexgpt-lite/latest`,
-        completionOptions: { stream: false, temperature: 0.4, maxTokens: 500 },
-        messages: aiHistory.map(m => ({role: m.role, text: m.text}))
+        model: GROQ_MODEL,
+        temperature: 0.4,
+        max_tokens: 500,
+        messages: aiHistory.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
+          content: m.text
+        }))
       })
     });
 
@@ -3601,7 +3655,7 @@ async function sendAIMessage(text){
       return;
     }
 
-    const aiText = data.result?.alternatives?.[0]?.message?.text || 'Не понял вопрос';
+    const aiText = data.choices?.[0]?.message?.content || 'Не понял вопрос';
     aiHistory.push({role: 'assistant', text: aiText});
 
     // Парсим ACTION и TEXT
@@ -3698,69 +3752,275 @@ function speakAIResponse(text){
   }
 }
 
-// ── Голосовой ввод
+// ── Голосовой ввод через Web Speech API (встроенный в браузер)
 let aiRecording = false;
-let aiMediaRecorder = null;
-let aiAudioChunks = [];
+let aiSpeechRecognition = null;
 
-async function toggleAIVoice(){
+function toggleAIVoice(){
   if(aiRecording){ stopAIVoice(); return; }
-  await startAIVoice();
+  startAIVoice();
 }
 
-async function startAIVoice(){
+function startAIVoice(){
+  // Проверяем поддержку
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    R('ai-status').textContent = '❌ Голосовой ввод не поддерживается. Используйте текст.';
+    return;
+  }
+
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-    aiAudioChunks = [];
-    aiMediaRecorder = new MediaRecorder(stream, {mimeType: 'audio/webm'});
-    aiMediaRecorder.ondataavailable = e => { if(e.data.size > 0) aiAudioChunks.push(e.data); };
-    aiMediaRecorder.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(aiAudioChunks, {type: 'audio/webm'});
-      await transcribeAudio(blob);
+    aiSpeechRecognition = new SR();
+    aiSpeechRecognition.lang = 'ru-RU';
+    aiSpeechRecognition.continuous = false;
+    aiSpeechRecognition.interimResults = false;
+    aiSpeechRecognition.maxAlternatives = 1;
+
+    aiSpeechRecognition.onstart = () => {
+      aiRecording = true;
+      R('ai-mic-btn')?.classList.add('recording');
+      R('ai-status').textContent = '🎤 Слушаю... говорите';
     };
-    aiMediaRecorder.start();
-    aiRecording = true;
-    R('ai-mic-btn')?.classList.add('recording');
-    R('ai-status').textContent = '🎤 Слушаю... Нажмите ещё раз чтобы отправить';
+
+    aiSpeechRecognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      R('ai-status').textContent = '';
+      if(text) sendAIMessage(text);
+    };
+
+    aiSpeechRecognition.onerror = (event) => {
+      console.warn('Speech error:', event.error);
+      R('ai-mic-btn')?.classList.remove('recording');
+      aiRecording = false;
+      if(event.error === 'no-speech'){
+        R('ai-status').textContent = '🔇 Не услышал. Нажмите 🎤 и говорите чётче';
+      } else if(event.error === 'not-allowed'){
+        R('ai-status').textContent = '❌ Разрешите микрофон в настройках';
+      } else {
+        R('ai-status').textContent = '❌ Ошибка: ' + event.error;
+      }
+    };
+
+    aiSpeechRecognition.onend = () => {
+      aiRecording = false;
+      R('ai-mic-btn')?.classList.remove('recording');
+    };
+
+    aiSpeechRecognition.start();
   } catch(e){
-    R('ai-status').textContent = '❌ Нет доступа к микрофону';
-    console.warn('Mic error:', e);
+    console.warn('Speech init error:', e);
+    R('ai-status').textContent = '❌ Не удалось запустить микрофон';
   }
 }
 
 function stopAIVoice(){
-  if(aiMediaRecorder && aiMediaRecorder.state !== 'inactive'){
-    aiMediaRecorder.stop();
+  if(aiSpeechRecognition){
+    try { aiSpeechRecognition.stop(); } catch(e){}
   }
   aiRecording = false;
   R('ai-mic-btn')?.classList.remove('recording');
-  R('ai-status').textContent = '⏳ Распознаём речь...';
 }
 
-async function transcribeAudio(blob){
+// ═══════════════════════════════════════════════
+//  ИИ-ПОМОЩНИК АДМИНА
+// ═══════════════════════════════════════════════
+let aiAdminHistory = [];
+
+function renderAIAdmin(){
+  if(aiAdminHistory.length === 0){
+    aiAdminHistory.push({role: 'system', text: getAIAdminSystemPrompt()});
+  }
+}
+
+function getAIAdminSystemPrompt(){
+  // Сводка по всем сотрудникам
+  const summary = employees.map(e => {
+    const wd = wdCount(e) || 1;
+    const workedDays = Object.entries(att[e.id]||{})
+      .filter(([d,r])=>isWork(e,parseInt(d))&&r&&r.arrive).length;
+    const otH = totalOT(e);
+    const debtH = totalDebt(e.id);
+    const empFines = fines.filter(f=>f.empId===e.id);
+    const fineSum = empFines.reduce((s,f)=>s+f.amount,0);
+    // Опоздания
+    const lateDays = Object.entries(att[e.id]||{})
+      .filter(([d,r])=>r&&r.lateMin>0).length;
+
+    return `${e.name} (${e.floor}, оклад ${e.salary}₽): отработал ${workedDays}/${wd} дней, переработка ${otH}ч, долг ${debtH}ч, опозданий ${lateDays}, штрафов ${fineSum}₽`;
+  }).join('\n');
+
+  // Сегодняшняя явка
+  const todayList = employees.filter(e=>isWork(e,TODAY)).map(e => {
+    const r = att[e.id]?.[TODAY];
+    if(!r) return `${e.name}: НЕ ПРИШЁЛ`;
+    if(!r.leave) return `${e.name}: на работе с ${r.arrive ? new Date(r.arrive).toTimeString().slice(0,5) : '?'}`;
+    return `${e.name}: отработал`;
+  }).join('\n');
+
+  // Запросы выходных
+  const requests = [];
+  Object.entries(dayOffRequests||{}).forEach(([eid, list]) => {
+    const emp = employees.find(e=>e.id===parseInt(eid));
+    if(!emp) return;
+    (list||[]).filter(r=>r.status==='pending').forEach(r => {
+      requests.push(`${emp.name} просит выходной на ${r.date}`);
+    });
+  });
+
+  const totalFOT = employees.reduce((s,e) => {
+    const p = calcPay(e);
+    return s + (p.gross || 0);
+  }, 0);
+
+  return `Ты помощник администратора кондитерского производства "Секреты Кавказа". Ты анализируешь команду из ${employees.length} человек.
+
+ОБЩАЯ СТАТИСТИКА:
+- Сегодня: ${TODAY} число
+- Всего сотрудников: ${employees.length}
+- 1-й этаж: ${employees.filter(e=>e.floor==='1й этаж').length} чел
+- 2-й этаж: ${employees.filter(e=>e.floor==='2й этаж').length} чел
+- Водитель: ${employees.filter(e=>e.floor==='Водитель').length} чел
+- Общий ФОТ за месяц: ${totalFOT} ₽
+- Общая сумма штрафов: ${fines.reduce((s,f)=>s+f.amount,0)} ₽
+
+СВОДКА ПО СОТРУДНИКАМ:
+${summary}
+
+ЯВКА СЕГОДНЯ:
+${todayList || 'Все на выходных'}
+
+ЗАПРОСЫ НА ВЫХОДНЫЕ:
+${requests.length ? requests.join('\n') : 'Нет запросов'}
+
+ПРАВИЛА:
+- Отвечай коротко, по делу, на русском
+- Используй цифры из данных, не выдумывай
+- Если просят топ — называй 3-5 человек с конкретными цифрами
+- Используй эмодзи для наглядности (🥇🥈🥉⚠️✅)
+- Если данных нет — говори честно "пока нет данных"`;
+}
+
+async function sendAIAdminMessage(text){
+  const inp = R('ai-admin-input');
+  const userText = text || inp?.value.trim();
+  if(!userText) return;
+  if(inp) inp.value = '';
+
+  addAIAdminMessage(userText, 'user');
+
+  const chat = R('ai-admin-chat');
+  const typingId = 'ai-typing-'+Date.now();
+  chat.insertAdjacentHTML('beforeend',
+    `<div class="ai-msg ai-bot" id="${typingId}"><div class="ai-msg-bubble"><div class="ai-typing"><span></span><span></span><span></span></div></div></div>`);
+  chat.scrollTop = chat.scrollHeight;
+
   try {
-    // Yandex SpeechKit принимает OGG/Opus, WAV, MP3 — webm не поддерживает
-    // Конвертируем в WAV через AudioContext (примитивно — отправляем как есть с ?format=lpcm)
-    // На практике webm/opus тоже распознаётся если послать корректно
-    const r = await fetch(YA_STT_URL+'?folderId='+YA_FOLDER+'&lang=ru-RU&format=oggopus', {
+    if(aiAdminHistory.length === 0){
+      aiAdminHistory.push({role: 'system', text: getAIAdminSystemPrompt()});
+    } else {
+      // Обновляем системный промпт с актуальными данными при каждом запросе
+      aiAdminHistory[0] = {role: 'system', text: getAIAdminSystemPrompt()};
+    }
+    aiAdminHistory.push({role: 'user', text: userText});
+
+    const r = await fetch(YA_GPT_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Api-Key ${YA_API_KEY}`
+        'Content-Type': 'application/json',
+        'Authorization': `Api-Key ${YA_API_KEY}`,
+        'x-folder-id': YA_FOLDER
       },
+      body: JSON.stringify({
+        modelUri: `gpt://${YA_FOLDER}/yandexgpt/latest`,
+        completionOptions: { stream: false, temperature: 0.3, maxTokens: 800 },
+        messages: aiAdminHistory.map(m => ({role: m.role, text: m.text}))
+      })
+    });
+
+    const data = await r.json();
+    R(typingId)?.remove();
+
+    if(!r.ok){
+      addAIAdminMessage('❌ Ошибка соединения с ИИ', 'bot', 'ai-error');
+      console.warn('AI admin error:', data);
+      return;
+    }
+
+    const aiText = data.result?.alternatives?.[0]?.message?.text || 'Не понял вопрос';
+    aiAdminHistory.push({role: 'assistant', text: aiText});
+    addAIAdminMessage(aiText, 'bot');
+    speakAIResponse(aiText);
+  } catch(e){
+    R(typingId)?.remove();
+    addAIAdminMessage('❌ Не удалось получить ответ', 'bot', 'ai-error');
+    console.warn('AI admin error:', e);
+  }
+}
+
+function addAIAdminMessage(text, role, extraClass){
+  const chat = R('ai-admin-chat');
+  if(!chat) return;
+  chat.insertAdjacentHTML('beforeend',
+    `<div class="ai-msg ai-${role}"><div class="ai-msg-bubble ${extraClass||''}">${text.replace(/\n/g,'<br>')}</div></div>`);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// ── Голосовой ввод для админа
+let aiAdminRecording = false;
+let aiAdminMediaRecorder = null;
+let aiAdminAudioChunks = [];
+
+async function toggleAIAdminVoice(){
+  if(aiAdminRecording){ stopAIAdminVoice(); return; }
+  await startAIAdminVoice();
+}
+
+async function startAIAdminVoice(){
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    aiAdminAudioChunks = [];
+    aiAdminMediaRecorder = new MediaRecorder(stream, {mimeType: 'audio/webm'});
+    aiAdminMediaRecorder.ondataavailable = e => { if(e.data.size > 0) aiAdminAudioChunks.push(e.data); };
+    aiAdminMediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(aiAdminAudioChunks, {type: 'audio/webm'});
+      await transcribeAdminAudio(blob);
+    };
+    aiAdminMediaRecorder.start();
+    aiAdminRecording = true;
+    R('ai-admin-mic-btn')?.classList.add('recording');
+    R('ai-admin-status').textContent = '🎤 Слушаю... Нажмите ещё раз чтобы отправить';
+  } catch(e){
+    R('ai-admin-status').textContent = '❌ Нет доступа к микрофону';
+    console.warn('Mic error:', e);
+  }
+}
+
+function stopAIAdminVoice(){
+  if(aiAdminMediaRecorder && aiAdminMediaRecorder.state !== 'inactive'){
+    aiAdminMediaRecorder.stop();
+  }
+  aiAdminRecording = false;
+  R('ai-admin-mic-btn')?.classList.remove('recording');
+  R('ai-admin-status').textContent = '⏳ Распознаём речь...';
+}
+
+async function transcribeAdminAudio(blob){
+  try {
+    const r = await fetch(YA_STT_URL+'?folderId='+YA_FOLDER+'&lang=ru-RU&format=oggopus', {
+      method: 'POST',
+      headers: { 'Authorization': `Api-Key ${YA_API_KEY}` },
       body: blob
     });
     const data = await r.json();
-    R('ai-status').textContent = '';
+    R('ai-admin-status').textContent = '';
     if(data.result){
-      sendAIMessage(data.result);
+      sendAIAdminMessage(data.result);
     } else {
-      R('ai-status').textContent = '❌ Не удалось распознать. Попробуйте текстом.';
-      console.warn('STT:', data);
+      R('ai-admin-status').textContent = '❌ Не удалось распознать';
     }
   } catch(e){
-    R('ai-status').textContent = '❌ Ошибка распознавания';
-    console.warn('STT error:', e);
+    R('ai-admin-status').textContent = '❌ Ошибка распознавания';
   }
 }
 
