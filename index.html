@@ -2548,14 +2548,53 @@ function renderOvertime(){
 let earlyLeave={};
 employees.forEach(e=>{ earlyLeave[e.id]={}; });
 
+// Проверка безопасности: на 2-м этаже минимум 2 человека на переработке
+// Возвращает {allowed: bool, reason: string, partners: array}
+function checkOvertimeSafety(emp){
+  if(!emp) return {allowed: false, reason: 'Сотрудник не найден'};
+  // Это правило только для 2-го этажа
+  if(emp.floor !== '2й этаж') return {allowed: true, reason: '', partners: []};
+
+  // Считаем кто ещё со 2-го этажа берёт переработку сегодня
+  const partners = employees.filter(e =>
+    e.id !== emp.id &&
+    e.floor === '2й этаж' &&
+    (todayOTSel[e.id] > 0 || (att[e.id]?.[TODAY]?.ot > 0))
+  );
+
+  if(partners.length === 0){
+    return {
+      allowed: false,
+      reason: '⚠️ Запрещено оставаться одному. На 2-м этаже минимум 2 человека на переработке. Дождитесь, пока ещё кто-то возьмёт переработку.',
+      partners: []
+    };
+  }
+  return {
+    allowed: true,
+    reason: '',
+    partners: partners
+  };
+}
+
 function selectOT(h){
+  const emp = employees.find(e=>e.id===myId);
+  // Проверка безопасности
+  const safety = checkOvertimeSafety(emp);
+  if(!safety.allowed){
+    toast(safety.reason, true);
+    alert(safety.reason);
+    return;
+  }
   todayOTSel[myId]=h;
-  // Also save to att
   if(!att[myId][TODAY]) att[myId][TODAY]={arrive:null,leave:null,ot:0};
   att[myId][TODAY].ot=h;
   saveData();
   renderOvertime(); renderWorklog(); renderHome();
-  toast(`✅ Переработка ${h} ч записана — +${money(h*getOTRate(employees.find(e=>e.id===myId)))}`);
+  let msg = `✅ Переработка ${h} ч записана — +${money(h*getOTRate(emp))}`;
+  if(safety.partners.length > 0){
+    msg += `\nС вами остаются: ${safety.partners.map(p=>p.name).join(', ')}`;
+  }
+  toast(msg);
 }
 function cancelOT(){
   todayOTSel[myId]=0;
@@ -3658,6 +3697,7 @@ function getAISystemPrompt(emp){
 - Опоздание = штраф 1 час долга
 - 2 дополнительных выходных в месяц
 - Аванс 50% оклада 15-го числа
+- ⚠️ ПРАВИЛО БЕЗОПАСНОСТИ: На 2-м этаже МИНИМУМ 2 человека на переработке. Один сотрудник не может оставаться после 17:00. Если ${emp.floor === '2й этаж' ? 'вы' : 'сотрудник 2-го этажа'} единственный кто хочет переработку — система запретит и предложит дождаться напарника.
 
 КОМАНДЫ (ВЫБИРАЙ ОДНУ):
 - TAKE_DAYOFF — взять выходной
@@ -3774,13 +3814,25 @@ function executeAIAction(action){
   }
   else if(action.startsWith('ADD_OVERTIME_')){
     const hours = parseInt(action.split('_')[2]);
+    const emp = employees.find(e=>e.id===myId);
+    // Проверка безопасности на 2-м этаже
+    const safety = checkOvertimeSafety(emp);
+    if(!safety.allowed){
+      addAIMessage(safety.reason, 'bot', 'ai-error');
+      return;
+    }
     todayOTSel[myId] = hours;
     if(!att[myId]) att[myId] = {};
     if(!att[myId][TODAY]) att[myId][TODAY] = {arrive:null,leave:null,ot:0};
     att[myId][TODAY].ot = hours;
     saveData();
-    const emp = employees.find(e=>e.id===myId);
-    addAIMessage(`✅ Переработка ${hours} ч записана. Доплата: +${hours*getOTRate(emp)} ₽`, 'bot', 'ai-action');
+    let msg = `✅ Переработка ${hours} ч записана. Доплата: +${hours*getOTRate(emp)} ₽`;
+    if(safety.partners.length > 0){
+      msg += `\nС вами остаются: ${safety.partners.map(p=>p.name).join(', ')}`;
+    }
+    addAIMessage(msg, 'bot', 'ai-action');
+    // Уведомление админу
+    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n⏱ <b>${emp?.name}</b> остаётся на переработку ${hours} ч (+${hours*getOTRate(emp)} ₽)`);
   }
   else if(action.startsWith('LEAVE_EARLY_')){
     const map = {'14':{time:'14:00',h:3},'15':{time:'15:00',h:2},'16':{time:'16:00',h:1}};
