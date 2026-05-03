@@ -4084,17 +4084,20 @@ async function sendAIAdminMessage(text){
     }
     aiAdminHistory.push({role: 'user', text: userText});
 
-    const r = await fetch(YA_GPT_URL, {
+    const r = await fetch(GROQ_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Api-Key ${YA_API_KEY}`,
-        'x-folder-id': YA_FOLDER
+        'Authorization': `Bearer ${GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        modelUri: `gpt://${YA_FOLDER}/yandexgpt/latest`,
-        completionOptions: { stream: false, temperature: 0.3, maxTokens: 800 },
-        messages: aiAdminHistory.map(m => ({role: m.role, text: m.text}))
+        model: GROQ_MODEL,
+        temperature: 0.3,
+        max_tokens: 800,
+        messages: aiAdminHistory.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
+          content: m.text
+        }))
       })
     });
 
@@ -4107,7 +4110,7 @@ async function sendAIAdminMessage(text){
       return;
     }
 
-    const aiText = data.result?.alternatives?.[0]?.message?.text || 'Не понял вопрос';
+    const aiText = data.choices?.[0]?.message?.content || 'Не понял вопрос';
     aiAdminHistory.push({role: 'assistant', text: aiText});
     addAIAdminMessage(aiText, 'bot');
     speakAIResponse(aiText);
@@ -4126,63 +4129,69 @@ function addAIAdminMessage(text, role, extraClass){
   chat.scrollTop = chat.scrollHeight;
 }
 
-// ── Голосовой ввод для админа
+// ── Голосовой ввод для админа через Web Speech API (встроенный)
 let aiAdminRecording = false;
-let aiAdminMediaRecorder = null;
-let aiAdminAudioChunks = [];
+let aiAdminSpeechRecognition = null;
 
-async function toggleAIAdminVoice(){
+function toggleAIAdminVoice(){
   if(aiAdminRecording){ stopAIAdminVoice(); return; }
-  await startAIAdminVoice();
+  startAIAdminVoice();
 }
 
-async function startAIAdminVoice(){
+function startAIAdminVoice(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    R('ai-admin-status').textContent = '❌ Голосовой ввод не поддерживается. Используйте текст.';
+    return;
+  }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-    aiAdminAudioChunks = [];
-    aiAdminMediaRecorder = new MediaRecorder(stream, {mimeType: 'audio/webm'});
-    aiAdminMediaRecorder.ondataavailable = e => { if(e.data.size > 0) aiAdminAudioChunks.push(e.data); };
-    aiAdminMediaRecorder.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(aiAdminAudioChunks, {type: 'audio/webm'});
-      await transcribeAdminAudio(blob);
+    aiAdminSpeechRecognition = new SR();
+    aiAdminSpeechRecognition.lang = 'ru-RU';
+    aiAdminSpeechRecognition.continuous = false;
+    aiAdminSpeechRecognition.interimResults = false;
+    aiAdminSpeechRecognition.maxAlternatives = 1;
+
+    aiAdminSpeechRecognition.onstart = () => {
+      aiAdminRecording = true;
+      R('ai-admin-mic-btn')?.classList.add('recording');
+      R('ai-admin-status').textContent = '🎤 Слушаю... говорите';
     };
-    aiAdminMediaRecorder.start();
-    aiAdminRecording = true;
-    R('ai-admin-mic-btn')?.classList.add('recording');
-    R('ai-admin-status').textContent = '🎤 Слушаю... Нажмите ещё раз чтобы отправить';
+
+    aiAdminSpeechRecognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      R('ai-admin-status').textContent = '';
+      if(text) sendAIAdminMessage(text);
+    };
+
+    aiAdminSpeechRecognition.onerror = (event) => {
+      R('ai-admin-mic-btn')?.classList.remove('recording');
+      aiAdminRecording = false;
+      if(event.error === 'no-speech'){
+        R('ai-admin-status').textContent = '🔇 Не услышал. Нажмите 🎤 и говорите чётче';
+      } else if(event.error === 'not-allowed'){
+        R('ai-admin-status').textContent = '❌ Разрешите микрофон в настройках';
+      } else {
+        R('ai-admin-status').textContent = '❌ Ошибка: ' + event.error;
+      }
+    };
+
+    aiAdminSpeechRecognition.onend = () => {
+      aiAdminRecording = false;
+      R('ai-admin-mic-btn')?.classList.remove('recording');
+    };
+
+    aiAdminSpeechRecognition.start();
   } catch(e){
-    R('ai-admin-status').textContent = '❌ Нет доступа к микрофону';
-    console.warn('Mic error:', e);
+    R('ai-admin-status').textContent = '❌ Не удалось запустить микрофон';
   }
 }
 
 function stopAIAdminVoice(){
-  if(aiAdminMediaRecorder && aiAdminMediaRecorder.state !== 'inactive'){
-    aiAdminMediaRecorder.stop();
+  if(aiAdminSpeechRecognition){
+    try { aiAdminSpeechRecognition.stop(); } catch(e){}
   }
   aiAdminRecording = false;
   R('ai-admin-mic-btn')?.classList.remove('recording');
-  R('ai-admin-status').textContent = '⏳ Распознаём речь...';
-}
-
-async function transcribeAdminAudio(blob){
-  try {
-    const r = await fetch(YA_STT_URL+'?folderId='+YA_FOLDER+'&lang=ru-RU&format=oggopus', {
-      method: 'POST',
-      headers: { 'Authorization': `Api-Key ${YA_API_KEY}` },
-      body: blob
-    });
-    const data = await r.json();
-    R('ai-admin-status').textContent = '';
-    if(data.result){
-      sendAIAdminMessage(data.result);
-    } else {
-      R('ai-admin-status').textContent = '❌ Не удалось распознать';
-    }
-  } catch(e){
-    R('ai-admin-status').textContent = '❌ Ошибка распознавания';
-  }
 }
 
 // Запускаем Telegram инициализацию
