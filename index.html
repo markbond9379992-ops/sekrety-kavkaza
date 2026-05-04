@@ -152,6 +152,19 @@ body.tg-mode .topbar {
 .ci-emoji{font-size:44px}
 .ci-hint{font-size:12px;color:rgba(255,255,255,.6)}
 
+/* ── REQUEST FILTER CHIPS ── */
+.filter-chip{padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:#fff;color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
+.filter-chip.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.req-card{background:#fff;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:var(--shadow);border-left:4px solid var(--gray)}
+.req-card.pending{border-left-color:var(--orange)}
+.req-card.approved{border-left-color:var(--green)}
+.req-card.rejected{border-left-color:var(--red)}
+.req-status{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700}
+.req-status.pending{background:var(--orange-bg);color:var(--orange2)}
+.req-status.approved{background:var(--green-bg);color:var(--green2)}
+.req-status.rejected{background:var(--red-bg);color:var(--red2)}
+.stat-pill{display:inline-flex;align-items:center;gap:6px;background:var(--blue-light);color:var(--blue);padding:6px 12px;border-radius:14px;font-size:12px;font-weight:700;margin:3px}
+
 /* ── AI CHAT ── */
 .ai-quick-btn{background:#fff;border:1px solid var(--border);border-radius:20px;padding:8px 14px;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;transition:all .2s}
 .ai-quick-btn:hover,.ai-quick-btn:active{background:var(--blue);color:#fff;border-color:var(--blue)}
@@ -491,12 +504,33 @@ table.wl .wl-total td{background:var(--blue);color:#fff!important;font-weight:80
       </div>
 
       <div id="home-dayoff-requests"></div>
+      <div id="home-holidays"></div>
 
       <div style="display:flex;flex-direction:column;gap:8px">
         <button class="btn btn-blue" onclick="openModal('m-add-emp')">➕ Добавить сотрудника</button>
         <button class="btn btn-red" onclick="openModal('m-add-fine')">⚠️ Выписать штраф</button>
         <button class="btn btn-orange" onclick="goPage('pg-salary')">💰 Выдача зарплат</button>
       </div>
+    </div>
+
+    <!-- ── ADMIN: ЗАПРОСЫ ── -->
+    <div class="page" id="pg-requests">
+      <div class="page-title">📨 Запросы сотрудников</div>
+      <div class="page-sub">Все обращения, отлучки, переработки</div>
+
+      <!-- Фильтры -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="filter-chip active" id="reqf-all"      onclick="setReqFilter('all')">Все</button>
+        <button class="filter-chip"        id="reqf-pending"  onclick="setReqFilter('pending')">⏳ Ожидают</button>
+        <button class="filter-chip"        id="reqf-approved" onclick="setReqFilter('approved')">✅ Одобрены</button>
+        <button class="filter-chip"        id="reqf-rejected" onclick="setReqFilter('rejected')">❌ Отклонены</button>
+      </div>
+
+      <!-- Статистика по сотрудникам -->
+      <div id="adm-req-stats"></div>
+
+      <!-- Список -->
+      <div id="adm-req-list"></div>
     </div>
 
     <!-- ── ADMIN: ПЕРСОНАЛ ── -->
@@ -725,6 +759,18 @@ table.wl .wl-total td{background:var(--blue);color:#fff!important;font-weight:80
       <div id="ai-status" style="text-align:center;font-size:12px;color:var(--gray);margin-top:8px;min-height:16px"></div>
     </div>
 
+    <!-- ── EMP: ИСТОРИЯ ЗАПРОСОВ ── -->
+    <div class="page" id="pg-myhistory">
+      <div class="page-title">📋 Моя история</div>
+      <div class="page-sub">Все ваши запросы и действия</div>
+
+      <!-- Статистика -->
+      <div id="myhist-stats"></div>
+
+      <!-- Список запросов -->
+      <div id="myhist-list"></div>
+    </div>
+
     <!-- ── EMP: ПРОФИЛЬ ── -->
     <div class="page" id="pg-empprofile">
       <div class="profile-hero" id="emp-profile-hero">
@@ -819,6 +865,8 @@ table.wl .wl-total td{background:var(--blue);color:#fff!important;font-weight:80
           <button onclick="sendAIAdminMessage('Сколько всего штрафов в этом месяце?')" class="ai-quick-btn">💸 Штрафы</button>
           <button onclick="sendAIAdminMessage('Общий ФОТ за этот месяц')" class="ai-quick-btn">💰 ФОТ месяца</button>
           <button onclick="sendAIAdminMessage('Сравни производительность 1-го и 2-го этажа')" class="ai-quick-btn">📊 По этажам</button>
+          <button onclick="sendAIAdminMessage('Объявить 9 мая выходным днём для всех')" class="ai-quick-btn">🎉 Объявить праздник</button>
+          <button onclick="sendAIAdminMessage('Дай Денису премию 5000 за хорошую работу')" class="ai-quick-btn">🎁 Выдать премию</button>
         </div>
       </div>
     </div>
@@ -1124,6 +1172,9 @@ const R=(id)=>document.getElementById(id);
 const money=(n)=>Math.round(n).toLocaleString('ru-RU')+' ₽';
 
 function isWork(emp,d){
+  // 🚫 Неоплачиваемый праздник — день не считается рабочим вообще
+  if(isUnpaidHoliday(THIS_YEAR, THIS_MONTH, d)) return false;
+
   // Водитель — только понедельник-пятница (5-дневка)
   if(emp.floor === 'Водитель'){
     const dow = new Date(THIS_YEAR, THIS_MONTH, d).getDay();
@@ -1145,9 +1196,29 @@ function calcPay(emp){
   // totalWorkDays = все плановые рабочие дни месяца
   const totalWorkDays = wdCount(emp) || 1;
 
-  // workedDays = дни где сотрудник отметил приход
-  const workedDays = Object.entries(att[emp.id]||{})
+  // 💰 Оплачиваемые праздники — засчитываются как отработанные дни автоматически
+  let paidHolidayDays = 0;
+  for(let d=1; d<=DAYS_IN_MONTH; d++){
+    if(isPaidHoliday(THIS_YEAR, THIS_MONTH, d)){
+      // Учитываем только если это был бы рабочий день для сотрудника
+      // (проверяем без isUnpaidHoliday-фильтра)
+      const isPlannedWorkDay = (() => {
+        if(emp.floor === 'Водитель'){
+          const dow = new Date(THIS_YEAR, THIS_MONTH, d).getDay();
+          return !(dow === 0 || dow === 6);
+        }
+        if(SATS.includes(d)) return false;
+        if(SUNS.includes(d)) return (emp.sg==='odd'?ODD_S:EVEN_S).includes(d);
+        return true;
+      })();
+      if(isPlannedWorkDay) paidHolidayDays++;
+    }
+  }
+
+  // workedDays = дни где сотрудник отметил приход + оплачиваемые праздники
+  const actualWorkedDays = Object.entries(att[emp.id]||{})
     .filter(([d,r])=> isWork(emp,parseInt(d)) && r && r.arrive).length;
+  const workedDays = actualWorkedDays + paidHolidayDays;
 
   // dayRate = оклад / рабочих дней в месяце
   const dayRate = emp.salary / totalWorkDays;
@@ -1187,8 +1258,12 @@ function calcPay(emp){
   // fines = штрафы
   const fine = fines.filter(f=>f.empId===emp.id).reduce((s,f)=>s+f.amount, 0);
 
-  // gross = начислено: база + остаток переработки - неотработанный долг - штрафы
-  const gross = Math.max(0, base + otPay - debtDeduct - fine);
+  // 🎁 БОНУСЫ — личные премии сотрудника
+  const empBonuses = (bonuses||[]).filter(b => b.empId === emp.id);
+  const bonusSum = empBonuses.reduce((s,b) => s + (b.amount||0), 0);
+
+  // gross = начислено: база + остаток переработки + премии - неотработанный долг - штрафы
+  const gross = Math.max(0, base + otPay + bonusSum - debtDeduct - fine);
 
   // advance = 50% от полного оклада
   const adv = Math.round(emp.salary * 0.5);
@@ -1200,7 +1275,8 @@ function calcPay(emp){
     totalWorkDays, workedDays, dayRate, hourRate, base,
     otPay, otTotalH, otPaidH,
     debtH: debtRemainH, debtTotalH, debtDeduct,
-    fine, gross, adv, rest
+    fine, bonusSum, bonuses: empBonuses,
+    gross, adv, rest
   };
 }
 
@@ -1291,6 +1367,7 @@ function doLogout(){
 const ADMIN_NAV=[
   {id:'pg-home',       icon:'📊', label:'Главная'},
   {id:'pg-ai-admin',   icon:'🤖', label:'Помощник'},
+  {id:'pg-requests',   icon:'📨', label:'Запросы'},
   {id:'pg-staff',      icon:'👥', label:'Персонал'},
   {id:'pg-schedule',   icon:'📅', label:'График'},
   {id:'pg-salary',     icon:'💰', label:'Зарплата'},
@@ -1301,6 +1378,7 @@ const ADMIN_NAV=[
 const EMP_NAV=[
   {id:'pg-checkin',    icon:'✅', label:'Явка'},
   {id:'pg-ai',         icon:'🤖', label:'Помощник'},
+  {id:'pg-myhistory',  icon:'📋', label:'История'},
   {id:'pg-worklog',    icon:'📊', label:'Работа'},
   {id:'pg-overtime',   icon:'⏱', label:'Часы'},
   {id:'pg-mysalary',   icon:'💵', label:'Зарплата'},
@@ -1333,6 +1411,8 @@ function goPage(id){
   if(id==='pg-ai-admin')   { renderAIAdmin(); }
   if(id==='pg-checkin')    renderCheckin();
   if(id==='pg-ai')         renderAIChat();
+  if(id==='pg-myhistory')  renderMyHistory();
+  if(id==='pg-requests')   renderAdminRequests();
   if(id==='pg-worklog')    renderWorklog();
   if(id==='pg-overtime')   renderOvertime();
   if(id==='pg-piggybank')  renderPiggyBank();
@@ -1348,21 +1428,31 @@ function goPage(id){
 // ═══════════════════════════════════════════════
 function approveReq(empId,dateKey){
   const req=(dayOffRequests[empId]||[]).find(r=>r.date===dateKey);
-  if(req){ req.status='approved'; }
+  if(req){
+    req.status='approved';
+    req.reviewedAt = new Date().toISOString();
+    if(!req.createdAt) req.createdAt = new Date().toISOString();
+  }
   const emp=employees.find(e=>e.id===empId);
   saveData();
   renderHome();
+  if(R('adm-req-list')) renderAdminRequests();
   toast('✅ Выходной одобрен: '+emp?.name);
-  // Уведомление сотруднику
   notifyEmployee(empId, `🏔️ <b>Секреты Кавказа</b>\n✅ Ваш запрос на выходной <b>${dateKey}</b> ОДОБРЕН администратором`);
 }
 function rejectReq(empId,dateKey){
-  dayOffRequests[empId]=(dayOffRequests[empId]||[]).filter(r=>r.date!==dateKey);
+  // Помечаем как отклонённый вместо удаления — для архива
+  const req = (dayOffRequests[empId]||[]).find(r=>r.date===dateKey);
+  if(req){
+    req.status = 'rejected';
+    req.reviewedAt = new Date().toISOString();
+    if(!req.createdAt) req.createdAt = new Date().toISOString();
+  }
   const emp=employees.find(e=>e.id===empId);
   saveData();
   renderHome();
+  if(R('adm-req-list')) renderAdminRequests();
   toast('❌ Выходной отклонён: '+emp?.name,true);
-  // Уведомление сотруднику
   notifyEmployee(empId, `🏔️ <b>Секреты Кавказа</b>\n❌ Ваш запрос на выходной <b>${dateKey}</b> отклонён администратором`);
 }
 
@@ -1384,7 +1474,31 @@ function renderHome(){
   const allReqs=employees.flatMap(e=>(dayOffRequests[e.id]||[]).filter(r=>r.status==='pending').map(r=>({...r,empName:e.name,empId:e.id})));
   const reqEl=R('home-dayoff-requests');
   if(reqEl){
-    reqEl.innerHTML=allReqs.length?`<div class="card" style="border-color:var(--orange);background:var(--orange-bg)">
+    // Запросы от ИИ-помощника (переработка, ранний уход, отлучки)
+    const pendingAI = (aiRequests||[]).filter(r=>r.status==='pending');
+    let aiReqsHtml = '';
+    if(pendingAI.length > 0){
+      aiReqsHtml = `<div class="card" style="border-color:var(--blue);background:#eef4fb;margin-bottom:8px">
+        <div class="card-head" style="color:var(--blue)">🤖 Запросы от ИИ-помощника (${pendingAI.length})</div>
+        ${pendingAI.map(r=>{
+          const icons = {overtime:'⏱', leave_early:'🚪', break_out:'🚶'};
+          const icon = icons[r.type] || '📨';
+          return `<div class="emp-item" style="cursor:default">
+            <div class="avatar av-blue">${icon}</div>
+            <div class="item-main">
+              <div class="item-name">${r.empName}</div>
+              <div class="item-sub">${r.desc}<br><span style="font-size:11px;color:var(--gray)">${r.time||''}</span></div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button onclick="approveAIRequest(${r.id})" style="background:var(--green-bg);color:var(--green2);border:1.5px solid var(--green);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer">✓</button>
+              <button onclick="rejectAIRequest(${r.id})" style="background:var(--red-bg);color:var(--red2);border:1.5px solid var(--red);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer">✕</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    const dayoffHtml = allReqs.length?`<div class="card" style="border-color:var(--orange);background:var(--orange-bg)">
       <div class="card-head" style="color:var(--orange2)">🏖️ Запросы выходных</div>
       ${allReqs.map(r=>`<div class="emp-item" style="cursor:default">
         <div class="avatar av-orange">${r.empName[0]}</div>
@@ -1395,6 +1509,41 @@ function renderHome(){
         </div>
       </div>`).join('')}
     </div>`:'';
+
+    reqEl.innerHTML = aiReqsHtml + dayoffHtml;
+  }
+
+  // ── Объявленные праздничные выходные ──
+  const holEl = R('home-holidays');
+  if(holEl){
+    const upcoming = (companyHolidays||[]).filter(h => {
+      const [y,m,d] = h.date.split('-').map(Number);
+      const hDate = new Date(y, m-1, d);
+      const today = new Date(); today.setHours(0,0,0,0);
+      return hDate >= today;
+    }).sort((a,b) => a.date.localeCompare(b.date));
+
+    if(upcoming.length > 0){
+      holEl.innerHTML = `<div class="card" style="border-color:#a855f7;background:#faf5ff;margin-top:8px">
+        <div class="card-head" style="color:#7e22ce">🎉 Праздничные выходные</div>
+        ${upcoming.map(h => {
+          const dateStr = h.date.split('-').reverse().join('.');
+          const typeLabel = h.paid
+            ? '<span style="background:#dcfce7;color:#15803d;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700">💰 Оплачиваемый</span>'
+            : '<span style="background:#fee2e2;color:#b91c1c;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700">🚫 Неоплачиваемый</span>';
+          return `<div class="emp-item" style="cursor:default">
+            <div class="avatar" style="background:#a855f7;color:#fff">🎊</div>
+            <div class="item-main">
+              <div class="item-name">${h.name}</div>
+              <div class="item-sub">📅 ${dateStr} ${typeLabel}</div>
+            </div>
+            <button onclick="cancelHoliday('${h.date}')" style="background:var(--red-bg);color:var(--red2);border:1.5px solid var(--red);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer">✕</button>
+          </div>`;
+        }).join('')}
+      </div>`;
+    } else {
+      holEl.innerHTML = '';
+    }
   }
 
   // Обновить заголовок с реальной датой
@@ -2157,12 +2306,37 @@ function renderWorklog(){
 
 function renderMySalary(){
   const emp=employees.find(e=>e.id===myId); if(!emp) return;
-  const{totalWorkDays,workedDays,dayRate,hourRate,base,otPay,debtH,debtDeduct,fine,gross,adv,rest}=calcPay(emp);
+  const{totalWorkDays,workedDays,dayRate,hourRate,base,otPay,debtH,debtDeduct,fine,bonusSum,bonuses:empBonuses,gross,adv,rest}=calcPay(emp);
   const aP=paidAdv[emp.id], fP=paidFull[emp.id];
   const hrRate=Math.round(hourRate);
+
+  // Блок личных премий (видит только сам сотрудник)
+  let bonusBlock = '';
+  if(empBonuses && empBonuses.length > 0){
+    bonusBlock = `<div class="card" style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;margin-bottom:14px;box-shadow:0 4px 12px rgba(245,158,11,.2)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:24px">🎁</span>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#92400e">ВАШИ ЛИЧНЫЕ ПРЕМИИ</div>
+          <div style="font-size:10px;color:#92400e;opacity:.8">🤐 Видны только вам</div>
+        </div>
+        <div style="margin-left:auto;font-size:22px;font-weight:900;color:#92400e">+${money(bonusSum)}</div>
+      </div>
+      ${empBonuses.map(b => `<div style="background:rgba(255,255,255,.6);border-radius:10px;padding:10px;margin-top:6px">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+          <div style="flex:1">
+            <div style="font-weight:700;color:#92400e;font-size:14px">💰 ${money(b.amount)}</div>
+            <div style="font-size:12px;color:#78350f;margin-top:2px">${b.reason||'Премия'}</div>
+          </div>
+          <div style="font-size:11px;color:#a16207;white-space:nowrap">${b.date||''}</div>
+        </div>
+      </div>`).join('')}
+    </div>`;
+  }
+
   R('mysalary-content').innerHTML=`
     <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:var(--radius);padding:16px;margin-bottom:10px;box-shadow:var(--shadow)">
-      <div style="font-size:12px;font-weight:700;color:var(--orange2);margin-bottom:6px">💛 АВАНС — 15 АПРЕЛЯ</div>
+      <div style="font-size:12px;font-weight:700;color:var(--orange2);margin-bottom:6px">💛 АВАНС — 15 ${['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'][THIS_MONTH]}</div>
       <div style="font-size:28px;font-weight:900;color:var(--orange2)">${money(adv)}</div>
       <div style="font-size:12px;color:var(--gray);margin-top:4px">50% от оклада · ${aP?'✅ Выплачен':'⏳ Ожидается 15-го'}</div>
     </div>
@@ -2171,6 +2345,7 @@ function renderMySalary(){
       <div style="font-size:28px;font-weight:900;color:var(--green2)">${money(rest)}</div>
       <div style="font-size:12px;color:var(--gray);margin-top:4px">Остаток после аванса · ${fP?'✅ Выплачена':'⏳ Ожидается в конце месяца'}</div>
     </div>
+    ${bonusBlock}
     <div class="divider">Детали расчёта</div>
     <div class="card">
       <div class="card-head">📊 Расшифровка</div>
@@ -2178,6 +2353,7 @@ function renderMySalary(){
       <div class="info-row"><span class="info-key">Ставка за 1 час</span><span class="info-val">${money(hrRate)}</span></div>
       <div class="info-row"><span class="info-key">Оплата за рабочие дни</span><span class="info-val">${money(base)}</span></div>
       ${otPay>0?`<div class="info-row"><span class="info-key">+ Переработка (${totalOT(emp)} ч × ${getOTRate(emp)} ₽)</span><span class="info-val" style="color:var(--orange)">+ ${money(otPay)}</span></div>`:''}
+      ${bonusSum>0?`<div class="info-row" style="background:#fef3c7;margin:2px -4px;padding:8px 12px;border-radius:8px"><span class="info-key" style="color:#92400e">🎁 Премии</span><span class="info-val" style="color:#92400e">+ ${money(bonusSum)}</span></div>`:''}
       ${debtDeduct>0?`<div class="info-row" style="background:#fef2f2;margin:2px -4px;padding:8px 12px;border-radius:8px">
         <span class="info-key" style="color:var(--red2)">⚠️ Долг по часам (${debtH} ч × ${money(hrRate)}/ч)</span>
         <span class="info-val" style="color:var(--red2)">− ${money(debtDeduct)}</span>
@@ -3329,11 +3505,10 @@ function saveData(){
     const payload = {
       employees, att, ot, extraOff, paidAdv, paidFull,
       fines, fineId, debtLog, debtLogId,
-      todayOTSel, earlyLeave, dayOffRequests,
+      todayOTSel, earlyLeave, dayOffRequests, aiRequests, companyHolidays, bonuses,
       salHistory, salHistoryId, ADMIN_PASS
     };
     localStorage.setItem(LS_KEY, JSON.stringify(payload));
-    // Также сохраняем общие данные в Telegram Cloud
     saveToCloud();
   } catch(e){
     console.warn('Ошибка сохранения:', e);
@@ -3341,7 +3516,7 @@ function saveData(){
       const payload2 = {
         employees, att, ot, extraOff, paidAdv, paidFull,
         fines, fineId, debtLog, debtLogId,
-        todayOTSel, earlyLeave, dayOffRequests,
+        todayOTSel, earlyLeave, dayOffRequests, aiRequests, companyHolidays, bonuses,
         salHistory:[], salHistoryId, ADMIN_PASS
       };
       localStorage.setItem(LS_KEY, JSON.stringify(payload2));
@@ -3406,6 +3581,9 @@ function loadData(){
       todayOTSel    = fixKeys(d.todayOTSel)    || {};
       earlyLeave    = fixKeysDeep(d.earlyLeave)|| {};
       dayOffRequests= fixKeys(d.dayOffRequests)|| {};
+      aiRequests    = Array.isArray(d.aiRequests) ? d.aiRequests : [];
+      companyHolidays = Array.isArray(d.companyHolidays) ? d.companyHolidays : [];
+      bonuses = Array.isArray(d.bonuses) ? d.bonuses : [];
 
       // Убедиться что для каждого сотрудника есть все структуры
       employees.forEach(e => {
@@ -3490,14 +3668,41 @@ const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_ID}`;
 
 let cloudSyncInProgress = false;
 let cloudSyncTimer = null;
+let cloudErrorCount = 0; // счётчик ошибок подряд
+let cloudOnline = true;
 
 // Загрузка данных из облака
 async function syncFromCloud(){
+  // Контроллер для таймаута
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 сек таймаут
+
   try {
     const r = await fetch(JSONBIN_URL+'/latest', {
-      headers: { 'X-Master-Key': JSONBIN_KEY }
+      headers: { 'X-Master-Key': JSONBIN_KEY },
+      signal: controller.signal,
+      cache: 'no-store'
     });
-    if(!r.ok) { console.warn('Cloud fetch failed:', r.status); return; }
+    clearTimeout(timeoutId);
+
+    if(!r.ok) {
+      console.warn('Cloud fetch failed:', r.status);
+      cloudErrorCount++;
+      // 429 = rate limit, нужна большая пауза
+      if(r.status === 429) {
+        console.warn('☁️ Rate limit — пауза 60 сек');
+        if(autoSyncTimer) clearInterval(autoSyncTimer);
+        setTimeout(() => startAutoSync(), 60000);
+      }
+      return;
+    }
+
+    cloudErrorCount = 0; // успех — сбрасываем
+    if(!cloudOnline) {
+      cloudOnline = true;
+      console.log('☁️ Соединение с облаком восстановлено');
+    }
+
     const data = await r.json();
     const cloud = data.record;
     if(!cloud || !cloud.employees || !cloud.employees.length) {
@@ -3516,6 +3721,9 @@ async function syncFromCloud(){
     if(cloud.extraOff)      extraOff      = cloud.extraOff;
     if(cloud.debtLog)       debtLog       = cloud.debtLog;
     if(cloud.dayOffRequests)dayOffRequests= cloud.dayOffRequests;
+    if(Array.isArray(cloud.aiRequests)) aiRequests = cloud.aiRequests;
+    if(Array.isArray(cloud.companyHolidays)) companyHolidays = cloud.companyHolidays;
+    if(Array.isArray(cloud.bonuses)) bonuses = cloud.bonuses;
     if(cloud.ADMIN_PASS)    ADMIN_PASS    = cloud.ADMIN_PASS;
 
     // Восстанавливаем структуры
@@ -3542,8 +3750,28 @@ async function syncFromCloud(){
     // Перерисовываем интерфейс
     if(role === 'admin')    renderAllAdmin();
     if(role === 'employee') renderCheckin();
+
+    // Если открыта страница истории — обновим её
+    const activeId = document.querySelector('.page.active')?.id;
+    if(activeId === 'pg-myhistory') renderMyHistory();
+    if(activeId === 'pg-requests')  renderAdminRequests();
   } catch(e){
-    console.warn('☁️ Cloud sync error:', e);
+    clearTimeout(timeoutId);
+    cloudErrorCount++;
+
+    // Распознаём тип ошибки
+    if(e.name === 'AbortError'){
+      console.warn('☁️ Таймаут соединения с облаком (8 сек). Работаем оффлайн.');
+    } else if(e.message?.includes('Load failed') || e.message?.includes('NetworkError') || e.message?.includes('fetch')){
+      console.warn('☁️ Нет соединения с облаком. Работаем оффлайн на локальных данных.');
+    } else {
+      console.warn('☁️ Cloud sync error:', e.message || e);
+    }
+
+    if(cloudErrorCount >= 3 && cloudOnline){
+      cloudOnline = false;
+      console.warn('☁️ Облако недоступно. Все изменения сохраняются локально и синхронизируются позже.');
+    }
   }
 }
 
@@ -3557,22 +3785,49 @@ function saveToCloud(){
       const shared = {
         employees, fines, salHistory,
         paidAdv, paidFull, att,
-        extraOff, debtLog, dayOffRequests,
+        extraOff, debtLog, dayOffRequests, aiRequests, companyHolidays, bonuses,
         ADMIN_PASS,
         _lastUpdate: new Date().toISOString()
       };
-      const r = await fetch(JSONBIN_URL, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Master-Key': JSONBIN_KEY
-        },
-        body: JSON.stringify(shared)
-      });
-      if(r.ok) console.log('☁️ Сохранено в облако');
-      else console.warn('☁️ Save failed:', r.status);
+
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 10000);
+
+      try {
+        const r = await fetch(JSONBIN_URL, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': JSONBIN_KEY
+          },
+          body: JSON.stringify(shared),
+          signal: ctrl.signal
+        });
+        clearTimeout(timeoutId);
+        if(r.ok){
+          console.log('☁️ Сохранено в облако');
+          cloudErrorCount = 0;
+          if(!cloudOnline){
+            cloudOnline = true;
+            console.log('☁️ Соединение восстановлено');
+          }
+        } else {
+          console.warn('☁️ Save failed:', r.status);
+          cloudErrorCount++;
+        }
+      } catch(e){
+        clearTimeout(timeoutId);
+        cloudErrorCount++;
+        if(e.name === 'AbortError'){
+          console.warn('☁️ Таймаут сохранения. Данные останутся локально.');
+        } else if(e.message?.includes('Load failed') || e.message?.includes('NetworkError') || e.message?.includes('fetch')){
+          console.warn('☁️ Нет связи с облаком. Сохранено локально, отправлю позже.');
+        } else {
+          console.warn('☁️ Cloud save error:', e.message || e);
+        }
+      }
     } catch(e){
-      console.warn('☁️ Cloud save error:', e);
+      console.warn('☁️ Save prep error:', e);
     } finally {
       cloudSyncInProgress = false;
     }
@@ -3700,11 +3955,24 @@ function getAISystemPrompt(emp){
 - ⚠️ ПРАВИЛО БЕЗОПАСНОСТИ: На 2-м этаже МИНИМУМ 2 человека на переработке. Один сотрудник не может оставаться после 17:00. Если ${emp.floor === '2й этаж' ? 'вы' : 'сотрудник 2-го этажа'} единственный кто хочет переработку — система запретит и предложит дождаться напарника.
 
 КОМАНДЫ (ВЫБИРАЙ ОДНУ):
-- TAKE_DAYOFF — взять выходной
-- ADD_OVERTIME_1 / ADD_OVERTIME_2 / ADD_OVERTIME_3 — записать переработку (закроет долг или даст доплату)
-- LEAVE_EARLY_14 / LEAVE_EARLY_15 / LEAVE_EARLY_16 — ухожу раньше насовсем (долг 3/2/1 ч)
-- CLOSE_DEBT_1 — вручную закрыть 1 час долга${flexCommands}
+- TAKE_DAYOFF — ЗАПРОС на выходной (требует одобрения админа)
+- ADD_OVERTIME_1 / ADD_OVERTIME_2 / ADD_OVERTIME_3 — ЗАПРОС на переработку (требует одобрения админа)
+- LEAVE_EARLY_14 / LEAVE_EARLY_15 / LEAVE_EARLY_16 — ЗАПРОС уйти раньше в 14/15/16 ч (требует одобрения админа)
+- CLOSE_DEBT_1 — информация о закрытии долга${flexCommands}
 - NONE — просто ответ без действия
+
+🔴 КРИТИЧЕСКИ ВАЖНО:
+ТЫ НЕ МОЖЕШЬ САМ РАЗРЕШИТЬ НИЧЕГО! Все действия (выходной, переработка, ранний уход, отлучка) — это ТОЛЬКО ЗАПРОСЫ, которые отправляются админу. Админ одобряет или отклоняет.
+
+Когда отвечаешь сотруднику — обязательно говори:
+- "Отправляю запрос администратору"
+- "Ожидайте одобрения"
+- "Решение примет администратор"
+
+НЕ ГОВОРИ:
+- "Хорошо, отлучайтесь" (это решает админ!)
+- "Записал переработку" (это решает админ!)
+- "Берите выходной" (это решает админ!)
 
 ВАЖНО: Если сотрудник просит отпроситься на час/два по делам с возвратом — используй BREAK_OUT_*, а не LEAVE_EARLY.
 
@@ -3716,7 +3984,10 @@ TEXT: <короткий ответ для сотрудника>
 
 Например:
 ACTION: BREAK_OUT_1
-TEXT: Хорошо, отлучайтесь на час. Записал долг 1 ч. Если сегодня останетесь после 17:00 — час долга закроется автоматически и денег не потеряете.`;
+TEXT: Отправляю запрос на отлучку 1 ч администратору. Ожидайте одобрения.
+
+ACTION: TAKE_DAYOFF
+TEXT: Отправляю запрос на выходной завтра администратору. Решение примет он.`;
 }
 
 async function sendAIMessage(text){
@@ -3805,99 +4076,424 @@ function addAIMessage(text, role, extraClass){
 function executeAIAction(action){
   const today = TODAY;
   const tomorrowKey = THIS_YEAR+'-'+String(THIS_MONTH+1).padStart(2,'0')+'-'+String(today+1).padStart(2,'0');
+  const emp = employees.find(e=>e.id===myId);
+  if(!emp) return;
+  const nowTime = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+
+  // Создаём запрос для админа (любое действие — только запрос!)
+  if(!aiRequests) window.aiRequests = [];
+  if(!Array.isArray(aiRequests)) window.aiRequests = [];
 
   if(action === 'TAKE_DAYOFF'){
+    // Запрос на выходной
     if(!dayOffRequests[myId]) dayOffRequests[myId] = [];
-    dayOffRequests[myId].push({date: tomorrowKey, status: 'pending'});
+    dayOffRequests[myId].push({
+      date: tomorrowKey,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    });
     saveData();
-    addAIMessage('✅ Запрос на выходной отправлен администратору', 'bot', 'ai-action');
+    addAIMessage('📨 Запрос на выходной отправлен администратору. Ожидайте одобрения.', 'bot', 'ai-action');
+    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n📅 <b>${emp.name}</b> просит ВЫХОДНОЙ на ${tomorrowKey}\n\nОткройте приложение чтобы одобрить или отклонить`);
+    return;
   }
-  else if(action.startsWith('ADD_OVERTIME_')){
+
+  if(action.startsWith('ADD_OVERTIME_')){
     const hours = parseInt(action.split('_')[2]);
-    const emp = employees.find(e=>e.id===myId);
-    // Проверка безопасности на 2-м этаже
-    const safety = checkOvertimeSafety(emp);
-    if(!safety.allowed){
-      addAIMessage(safety.reason, 'bot', 'ai-error');
-      return;
-    }
-    todayOTSel[myId] = hours;
-    if(!att[myId]) att[myId] = {};
-    if(!att[myId][TODAY]) att[myId][TODAY] = {arrive:null,leave:null,ot:0};
-    att[myId][TODAY].ot = hours;
-    saveData();
-    let msg = `✅ Переработка ${hours} ч записана. Доплата: +${hours*getOTRate(emp)} ₽`;
-    if(safety.partners.length > 0){
-      msg += `\nС вами остаются: ${safety.partners.map(p=>p.name).join(', ')}`;
-    }
-    addAIMessage(msg, 'bot', 'ai-action');
-    // Уведомление админу
-    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n⏱ <b>${emp?.name}</b> остаётся на переработку ${hours} ч (+${hours*getOTRate(emp)} ₽)`);
+    // Создаём запрос на переработку (требует одобрения админа)
+    addAIRequest({
+      type: 'overtime',
+      empId: myId,
+      empName: emp.name,
+      hours: hours,
+      pay: hours * getOTRate(emp),
+      time: nowTime,
+      desc: `Переработка ${hours} ч (+${hours*getOTRate(emp)} ₽)`
+    });
+    addAIMessage(`📨 Запрос на переработку ${hours} ч отправлен администратору. Ожидайте одобрения.`, 'bot', 'ai-action');
+    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n⏱ <b>${emp.name}</b> просит остаться на ПЕРЕРАБОТКУ ${hours} ч (+${hours*getOTRate(emp)} ₽)\n\nОткройте приложение чтобы одобрить`);
+    return;
   }
-  else if(action.startsWith('LEAVE_EARLY_')){
+
+  if(action.startsWith('LEAVE_EARLY_')){
     const map = {'14':{time:'14:00',h:3},'15':{time:'15:00',h:2},'16':{time:'16:00',h:1}};
     const hourCode = action.split('_')[2];
     const e = map[hourCode];
-    if(e){
-      if(!earlyLeave[myId]) earlyLeave[myId] = {};
-      earlyLeave[myId][TODAY] = {time: e.time, debtH: e.h};
-      if(!debtLog[myId]) debtLog[myId] = [];
-      debtLog[myId].push({
-        id: debtLogId++, date: new Date().toLocaleDateString('ru-RU'),
-        debtMin: e.h*60, debtH: e.h, closedH: 0,
-        note: `Ранний уход в ${e.time} — долг ${e.h} ч`
-      });
-      saveData();
-      addAIMessage(`✅ Ранний уход в ${e.time} зафиксирован. Долг: ${e.h} ч`, 'bot', 'ai-action');
-    }
+    if(!e) return;
+    addAIRequest({
+      type: 'leave_early',
+      empId: myId,
+      empName: emp.name,
+      leaveTime: e.time,
+      hours: e.h,
+      time: nowTime,
+      desc: `Уйти в ${e.time} (долг ${e.h} ч)`
+    });
+    addAIMessage(`📨 Запрос на ранний уход в ${e.time} отправлен администратору. Ожидайте одобрения.`, 'bot', 'ai-action');
+    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n🚪 <b>${emp.name}</b> просит уйти раньше — в <b>${e.time}</b> (долг ${e.h} ч)\n\nОткройте приложение чтобы одобрить`);
+    return;
   }
-  else if(action === 'CLOSE_DEBT_1'){
-    const open = (debtLog[myId]||[]).find(d => d.debtH-d.closedH > 0);
-    if(open){
-      const close = Math.min(1, open.debtH-open.closedH);
-      open.closedH += close;
-      saveData();
-      addAIMessage(`✅ Закрыт ${close} ч долга`, 'bot', 'ai-action');
-    } else {
-      addAIMessage('У вас нет открытых долгов', 'bot', 'ai-action');
-    }
+
+  if(action === 'CLOSE_DEBT_1'){
+    // Закрытие долга — только информационно, должно быть через переработку
+    addAIMessage('💡 Долг автоматически закрывается переработкой. Возьмите переработку по согласованию с админом — она сама закроет долг.', 'bot', 'ai-action');
+    return;
   }
-  // ── ОТЛУЧКА ДЛЯ ПРИВИЛЕГИРОВАННЫХ СОТРУДНИКОВ
-  else if(action.startsWith('BREAK_OUT_')){
+
+  // Отлучки для привилегированных сотрудников — тоже через запрос
+  if(action.startsWith('BREAK_OUT_')){
     const FLEX_NAMES = ['Денис', 'Сергей', 'Елена', 'Татьяна Владимировна'];
-    const emp = employees.find(e=>e.id===myId);
-    if(!FLEX_NAMES.includes(emp?.name)){
-      addAIMessage('❌ У вас нет права на отлучки в течение дня. Используйте «уйти раньше».', 'bot', 'ai-error');
+    if(!FLEX_NAMES.includes(emp.name)){
+      addAIMessage('❌ У вас нет права на отлучки в течение дня.', 'bot', 'ai-error');
       return;
     }
     const hours = parseInt(action.split('_')[2]);
-    const nowTime = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
-    if(!debtLog[myId]) debtLog[myId] = [];
-    debtLog[myId].push({
+    addAIRequest({
+      type: 'break_out',
+      empId: myId,
+      empName: emp.name,
+      hours: hours,
+      time: nowTime,
+      desc: `Отлучиться с ${nowTime} на ${hours} ч (долг ${hours} ч)`
+    });
+    addAIMessage(`📨 Запрос на отлучку ${hours} ч отправлен администратору. Ожидайте одобрения.`, 'bot', 'ai-action');
+    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n🚶 <b>${emp.name}</b> просит ОТЛУЧИТЬСЯ с ${nowTime} на <b>${hours} ч</b> (долг ${hours} ч)\n\nОткройте приложение чтобы одобрить`);
+    return;
+  }
+
+  if(action === 'BACK_FROM_BREAK'){
+    addAIMessage(`✅ Уведомил администратора что вы вернулись в ${nowTime}`, 'bot', 'ai-action');
+    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n✅ <b>${emp.name}</b> вернулся с отлучки в ${nowTime}`);
+    return;
+  }
+}
+
+// ── СИСТЕМА ЗАПРОСОВ ОТ СОТРУДНИКОВ К АДМИНУ ──
+let aiRequests = [];
+
+function addAIRequest(req){
+  if(!Array.isArray(aiRequests)) aiRequests = [];
+  req.id = Date.now() + Math.random();
+  req.status = 'pending';
+  req.date = new Date().toLocaleDateString('ru-RU');
+  req.createdAt = new Date().toISOString();
+  aiRequests.push(req);
+  saveData();
+}
+
+function approveAIRequest(reqId){
+  const req = aiRequests.find(r => r.id === reqId);
+  if(!req) return;
+  req.status = 'approved';
+  req.reviewedAt = new Date().toISOString();
+  const emp = employees.find(e=>e.id===req.empId);
+
+  if(req.type === 'overtime'){
+    todayOTSel[req.empId] = req.hours;
+    if(!att[req.empId]) att[req.empId] = {};
+    if(!att[req.empId][TODAY]) att[req.empId][TODAY] = {arrive:null,leave:null,ot:0};
+    att[req.empId][TODAY].ot = req.hours;
+  }
+  else if(req.type === 'leave_early'){
+    if(!earlyLeave[req.empId]) earlyLeave[req.empId] = {};
+    earlyLeave[req.empId][TODAY] = {time: req.leaveTime, debtH: req.hours};
+    if(!debtLog[req.empId]) debtLog[req.empId] = [];
+    debtLog[req.empId].push({
+      id: debtLogId++, date: new Date().toLocaleDateString('ru-RU'),
+      debtMin: req.hours*60, debtH: req.hours, closedH: 0,
+      note: `Ранний уход в ${req.leaveTime} — долг ${req.hours} ч`
+    });
+  }
+  else if(req.type === 'break_out'){
+    if(!debtLog[req.empId]) debtLog[req.empId] = [];
+    debtLog[req.empId].push({
       id: debtLogId++,
       date: new Date().toLocaleDateString('ru-RU'),
-      debtMin: hours*60,
-      debtH: hours,
-      closedH: 0,
-      note: `Отлучка с ${nowTime} на ${hours} ч`
+      debtMin: req.hours*60, debtH: req.hours, closedH: 0,
+      note: `Отлучка с ${req.time} на ${req.hours} ч`
     });
-    saveData();
-    addAIMessage(`✅ Отлучка зафиксирована: ${hours} ч с ${nowTime}. Долг ${hours} ч можно отработать переработкой.`, 'bot', 'ai-action');
-    // Уведомление админу
-    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n🚶 <b>${emp?.name}</b> отлучился по делам с ${nowTime} на <b>${hours} ч</b>\n📝 Долг записан, отработает переработкой`);
   }
-  else if(action === 'BACK_FROM_BREAK'){
-    const FLEX_NAMES = ['Денис', 'Сергей', 'Елена', 'Татьяна Владимировна'];
-    const emp = employees.find(e=>e.id===myId);
-    if(!FLEX_NAMES.includes(emp?.name)){
-      addAIMessage('Эта команда не для вас', 'bot', 'ai-error');
-      return;
+
+  saveData();
+  renderHome();
+  if(R('adm-req-list')) renderAdminRequests();
+  toast(`✅ Одобрено: ${emp?.name} — ${req.desc}`);
+  notifyEmployee(req.empId, `🏔️ <b>Секреты Кавказа</b>\n✅ Ваш запрос ОДОБРЕН:\n<b>${req.desc}</b>`);
+}
+
+function rejectAIRequest(reqId){
+  const req = aiRequests.find(r => r.id === reqId);
+  if(!req) return;
+  req.status = 'rejected';
+  req.reviewedAt = new Date().toISOString();
+  const emp = employees.find(e=>e.id===req.empId);
+  saveData();
+  renderHome();
+  if(R('adm-req-list')) renderAdminRequests();
+  toast(`❌ Отклонено: ${emp?.name} — ${req.desc}`, true);
+  notifyEmployee(req.empId, `🏔️ <b>Секреты Кавказа</b>\n❌ Ваш запрос ОТКЛОНЁН:\n<b>${req.desc}</b>`);
+}
+
+// ═══════════════════════════════════════════════
+//  ИСТОРИЯ ЗАПРОСОВ — СОТРУДНИК
+// ═══════════════════════════════════════════════
+function renderMyHistory(){
+  const emp = employees.find(e=>e.id===myId);
+  if(!emp) return;
+  const myReqs = (aiRequests||[]).filter(r => r.empId === myId);
+  const myDayoffs = (dayOffRequests[myId]||[]).map(r => ({
+    type: 'dayoff',
+    desc: `Выходной на ${r.date.split('-').reverse().join('.')}`,
+    status: r.status === 'pending' ? 'pending' : (r.status === 'approved' ? 'approved' : 'rejected'),
+    date: r.date,
+    createdAt: r.createdAt || r.date
+  }));
+
+  // Объединяем все запросы сотрудника
+  const allMy = [...myReqs, ...myDayoffs].sort((a,b) => {
+    const aT = new Date(a.createdAt || 0).getTime();
+    const bT = new Date(b.createdAt || 0).getTime();
+    return bT - aT;
+  });
+
+  // Подсчёт статистики
+  const stats = {
+    total: allMy.length,
+    pending: allMy.filter(r => r.status === 'pending').length,
+    approved: allMy.filter(r => r.status === 'approved').length,
+    rejected: allMy.filter(r => r.status === 'rejected').length,
+    dayoffs: allMy.filter(r => r.type === 'dayoff' && r.status === 'approved').length,
+    breakHours: myReqs.filter(r => r.type === 'break_out' && r.status === 'approved').reduce((s,r) => s+r.hours, 0),
+    earlyHours: myReqs.filter(r => r.type === 'leave_early' && r.status === 'approved').reduce((s,r) => s+r.hours, 0),
+    overtimeHours: myReqs.filter(r => r.type === 'overtime' && r.status === 'approved').reduce((s,r) => s+r.hours, 0)
+  };
+
+  const statsEl = R('myhist-stats');
+  if(statsEl){
+    statsEl.innerHTML = `
+      <div class="card" style="background:linear-gradient(135deg,#1e3a5f,#2563ab);color:#fff;border:none;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:10px;opacity:.85">📊 Статистика за месяц</div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+          <div style="background:rgba(255,255,255,.15);padding:10px;border-radius:10px">
+            <div style="font-size:24px;font-weight:900">${stats.dayoffs}</div>
+            <div style="font-size:11px;opacity:.8">🏖 Выходных</div>
+          </div>
+          <div style="background:rgba(255,255,255,.15);padding:10px;border-radius:10px">
+            <div style="font-size:24px;font-weight:900">${stats.overtimeHours} ч</div>
+            <div style="font-size:11px;opacity:.8">⏱ Переработка</div>
+          </div>
+          <div style="background:rgba(255,255,255,.15);padding:10px;border-radius:10px">
+            <div style="font-size:24px;font-weight:900">${stats.breakHours} ч</div>
+            <div style="font-size:11px;opacity:.8">🚶 Отлучки</div>
+          </div>
+          <div style="background:rgba(255,255,255,.15);padding:10px;border-radius:10px">
+            <div style="font-size:24px;font-weight:900">${stats.earlyHours} ч</div>
+            <div style="font-size:11px;opacity:.8">🚪 Ранние уходы</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;font-size:12px">
+          <span style="background:rgba(34,197,94,.3);padding:4px 10px;border-radius:10px">✅ ${stats.approved}</span>
+          <span style="background:rgba(245,158,11,.3);padding:4px 10px;border-radius:10px">⏳ ${stats.pending}</span>
+          <span style="background:rgba(239,68,68,.3);padding:4px 10px;border-radius:10px">❌ ${stats.rejected}</span>
+          <span style="background:rgba(255,255,255,.2);padding:4px 10px;border-radius:10px;margin-left:auto">Всего: ${stats.total}</span>
+        </div>
+      </div>`;
+  }
+
+  const listEl = R('myhist-list');
+  if(listEl){
+    if(allMy.length === 0){
+      listEl.innerHTML = `<div class="card" style="text-align:center;padding:40px 20px;color:var(--gray)">
+        <div style="font-size:40px;margin-bottom:10px">📭</div>
+        <div>Пока нет запросов</div>
+        <div style="font-size:12px;margin-top:6px">Используйте 🤖 Помощник для создания</div>
+      </div>`;
+    } else {
+      listEl.innerHTML = allMy.map(r => formatRequestCard(r, false)).join('');
     }
-    const nowTime = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
-    addAIMessage(`✅ Вернулись с отлучки в ${nowTime}. Продолжайте работать!`, 'bot', 'ai-action');
-    // Уведомление админу
-    notifyAdmin(`🏔️ <b>Секреты Кавказа</b>\n✅ <b>${emp?.name}</b> вернулся с отлучки в ${nowTime}`);
   }
+}
+
+function formatRequestCard(r, showName){
+  const icons = {
+    overtime: '⏱', leave_early: '🚪', break_out: '🚶', dayoff: '🏖'
+  };
+  const labels = {
+    overtime: 'Переработка',
+    leave_early: 'Ранний уход',
+    break_out: 'Отлучка',
+    dayoff: 'Выходной'
+  };
+  const statusLabels = {
+    pending: '⏳ Ожидает',
+    approved: '✅ Одобрено',
+    rejected: '❌ Отклонено'
+  };
+  const icon = icons[r.type] || '📨';
+  const label = labels[r.type] || 'Запрос';
+  const dateStr = r.createdAt ? new Date(r.createdAt).toLocaleString('ru-RU', {
+    day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'
+  }) : (r.date || '');
+  const reviewStr = r.reviewedAt ? new Date(r.reviewedAt).toLocaleString('ru-RU', {
+    day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'
+  }) : '';
+
+  return `<div class="req-card ${r.status}">
+    <div style="display:flex;align-items:start;gap:10px">
+      <div style="font-size:28px;line-height:1">${icon}</div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <span style="font-weight:700;font-size:14px">${label}</span>
+          <span class="req-status ${r.status}">${statusLabels[r.status] || r.status}</span>
+        </div>
+        ${showName ? `<div style="font-size:13px;color:var(--blue);font-weight:600;margin-bottom:2px">${r.empName||''}</div>` : ''}
+        <div style="font-size:13px;color:var(--text);margin-bottom:4px">${r.desc || ''}</div>
+        <div style="font-size:11px;color:var(--gray)">
+          📅 Подан: ${dateStr}
+          ${reviewStr ? ` · 👑 Решение: ${reviewStr}` : ''}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════
+//  ЗАПРОСЫ — АДМИН (все сотрудники)
+// ═══════════════════════════════════════════════
+let reqFilterValue = 'all';
+
+function setReqFilter(val){
+  reqFilterValue = val;
+  ['all','pending','approved','rejected'].forEach(v => {
+    const btn = R('reqf-'+v);
+    if(btn) btn.classList.toggle('active', v === val);
+  });
+  renderAdminRequests();
+}
+
+function renderAdminRequests(){
+  // Собираем все запросы со всех сотрудников
+  const allReqs = [];
+
+  // Запросы от ИИ
+  (aiRequests||[]).forEach(r => {
+    allReqs.push({...r, source: 'ai'});
+  });
+
+  // Запросы выходных
+  Object.entries(dayOffRequests||{}).forEach(([eid, list]) => {
+    const emp = employees.find(e=>e.id===parseInt(eid));
+    if(!emp) return;
+    (list||[]).forEach(r => {
+      allReqs.push({
+        type: 'dayoff',
+        empId: emp.id,
+        empName: emp.name,
+        desc: `Выходной на ${r.date.split('-').reverse().join('.')}`,
+        status: r.status === 'pending' ? 'pending' : (r.status === 'approved' ? 'approved' : 'rejected'),
+        date: r.date,
+        createdAt: r.createdAt || r.date,
+        source: 'dayoff',
+        _origRef: r
+      });
+    });
+  });
+
+  // Сортировка по дате (новые сверху)
+  allReqs.sort((a,b) => {
+    const aT = new Date(a.createdAt || 0).getTime();
+    const bT = new Date(b.createdAt || 0).getTime();
+    return bT - aT;
+  });
+
+  // Фильтр
+  const filtered = reqFilterValue === 'all'
+    ? allReqs
+    : allReqs.filter(r => r.status === reqFilterValue);
+
+  // Статистика по сотрудникам (топ 5 по количеству)
+  const byEmp = {};
+  allReqs.forEach(r => {
+    if(!byEmp[r.empId]) byEmp[r.empId] = {name: r.empName, total:0, approved:0, pending:0, rejected:0, hours:0};
+    byEmp[r.empId].total++;
+    byEmp[r.empId][r.status]++;
+    if(r.hours) byEmp[r.empId].hours += r.hours;
+  });
+  const topEmps = Object.entries(byEmp)
+    .sort((a,b) => b[1].total - a[1].total)
+    .slice(0, 5);
+
+  // Рендер статистики
+  const statsEl = R('adm-req-stats');
+  if(statsEl){
+    statsEl.innerHTML = `
+      <div class="card" style="background:linear-gradient(135deg,#1e3a5f,#2563ab);color:#fff;border:none;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:10px;opacity:.85">📊 Общая статистика</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="background:rgba(255,255,255,.15);padding:10px 14px;border-radius:10px;flex:1;min-width:80px">
+            <div style="font-size:22px;font-weight:900">${allReqs.length}</div>
+            <div style="font-size:11px;opacity:.8">Всего</div>
+          </div>
+          <div style="background:rgba(245,158,11,.3);padding:10px 14px;border-radius:10px;flex:1;min-width:80px">
+            <div style="font-size:22px;font-weight:900">${allReqs.filter(r=>r.status==='pending').length}</div>
+            <div style="font-size:11px;opacity:.8">⏳ Ожидают</div>
+          </div>
+          <div style="background:rgba(34,197,94,.3);padding:10px 14px;border-radius:10px;flex:1;min-width:80px">
+            <div style="font-size:22px;font-weight:900">${allReqs.filter(r=>r.status==='approved').length}</div>
+            <div style="font-size:11px;opacity:.8">✅ Одобрены</div>
+          </div>
+          <div style="background:rgba(239,68,68,.3);padding:10px 14px;border-radius:10px;flex:1;min-width:80px">
+            <div style="font-size:22px;font-weight:900">${allReqs.filter(r=>r.status==='rejected').length}</div>
+            <div style="font-size:11px;opacity:.8">❌ Отклонены</div>
+          </div>
+        </div>
+      </div>
+
+      ${topEmps.length > 0 ? `<div class="card" style="margin-bottom:14px">
+        <div class="card-head">🏆 Топ по количеству запросов</div>
+        ${topEmps.map(([id,e],i) => `
+          <div class="emp-item" style="cursor:default">
+            <div class="avatar av-blue">${i+1}</div>
+            <div class="item-main">
+              <div class="item-name">${e.name}</div>
+              <div class="item-sub">${e.total} запросов · ✅ ${e.approved} · ⏳ ${e.pending} · ❌ ${e.rejected}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>` : ''}
+    `;
+  }
+
+  // Рендер списка с кнопками одобрения для pending
+  const listEl = R('adm-req-list');
+  if(!listEl) return;
+
+  if(filtered.length === 0){
+    listEl.innerHTML = `<div class="card" style="text-align:center;padding:40px 20px;color:var(--gray)">
+      <div style="font-size:40px;margin-bottom:10px">📭</div>
+      <div>Нет запросов в этой категории</div>
+    </div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(r => {
+    const card = formatRequestCard(r, true);
+    if(r.status !== 'pending') return card;
+    // Добавляем кнопки одобрения для pending
+    let btns = '';
+    if(r.source === 'dayoff'){
+      btns = `<div style="display:flex;gap:8px;margin-top:8px">
+        <button onclick="approveReq(${r.empId},'${r.date}')" style="flex:1;background:var(--green-bg);color:var(--green2);border:1.5px solid var(--green);border-radius:10px;padding:10px;font-weight:700;cursor:pointer">✓ Одобрить</button>
+        <button onclick="rejectReq(${r.empId},'${r.date}')" style="flex:1;background:var(--red-bg);color:var(--red2);border:1.5px solid var(--red);border-radius:10px;padding:10px;font-weight:700;cursor:pointer">✕ Отклонить</button>
+      </div>`;
+    } else {
+      btns = `<div style="display:flex;gap:8px;margin-top:8px">
+        <button onclick="approveAIRequest(${r.id})" style="flex:1;background:var(--green-bg);color:var(--green2);border:1.5px solid var(--green);border-radius:10px;padding:10px;font-weight:700;cursor:pointer">✓ Одобрить</button>
+        <button onclick="rejectAIRequest(${r.id})" style="flex:1;background:var(--red-bg);color:var(--red2);border:1.5px solid var(--red);border-radius:10px;padding:10px;font-weight:700;cursor:pointer">✕ Отклонить</button>
+      </div>`;
+    }
+    return card.replace('</div>\n  </div>\n</div>', '</div>\n  </div>\n  '+btns+'\n</div>');
+  }).join('');
 }
 
 function speakAIResponse(text){
@@ -4033,6 +4629,17 @@ function getAIAdminSystemPrompt(){
     return s + (p.gross || 0);
   }, 0);
 
+  // Список объявленных праздников
+  const holidaysList = (companyHolidays||[]).map(h =>
+    `${h.date} — ${h.name} (${h.paid ? 'оплачиваемый' : 'неоплачиваемый'})`
+  ).join('\n') || 'Не объявлено';
+
+  // Список выданных премий
+  const bonusList = (bonuses||[]).slice(-10).map(b => {
+    const e = employees.find(x=>x.id===b.empId);
+    return `${b.date} — ${e?.name||'?'}: ${b.amount}₽ (${b.reason})`;
+  }).join('\n') || 'Премий ещё не было';
+
   return `Ты помощник администратора кондитерского производства "Секреты Кавказа". Ты анализируешь команду из ${employees.length} человек.
 
 ОБЩАЯ СТАТИСТИКА:
@@ -4044,7 +4651,10 @@ function getAIAdminSystemPrompt(){
 - Общий ФОТ за месяц: ${totalFOT} ₽
 - Общая сумма штрафов: ${fines.reduce((s,f)=>s+f.amount,0)} ₽
 
-СВОДКА ПО СОТРУДНИКАМ:
+СВОДКА ПО СОТРУДНИКАМ (используй ID для команд премий):
+${employees.map(e => `ID=${e.id} — ${e.name} (${e.floor}, оклад ${e.salary}₽)`).join('\n')}
+
+ДЕТАЛЬНАЯ СВОДКА:
 ${summary}
 
 ЯВКА СЕГОДНЯ:
@@ -4053,12 +4663,87 @@ ${todayList || 'Все на выходных'}
 ЗАПРОСЫ НА ВЫХОДНЫЕ:
 ${requests.length ? requests.join('\n') : 'Нет запросов'}
 
+ОБЪЯВЛЕННЫЕ ПРАЗДНИЧНЫЕ ВЫХОДНЫЕ:
+${holidaysList}
+
+ПОСЛЕДНИЕ ВЫДАННЫЕ ПРЕМИИ:
+${bonusList}
+
+📋 ОФИЦИАЛЬНЫЕ ВЫХОДНЫЕ И ПРАЗДНИКИ РФ (для справки):
+- 1-8 января — Новогодние каникулы
+- 23 февраля — День защитника Отечества
+- 8 марта — Международный женский день
+- 1 мая — Праздник Весны и Труда
+- 9 мая — День Победы
+- 12 июня — День России
+- 4 ноября — День народного единства
+
+⚠️ ВАЖНО: На производстве "Секреты Кавказа" НЕ ВСЕ официальные праздники нерабочие — это решает админ! Производство может работать в эти дни. Никогда не предполагай что в праздник РФ автоматически выходной.
+
+КОМАНДЫ КОТОРЫЕ ТЫ МОЖЕШЬ ВЫПОЛНЯТЬ:
+- DECLARE_HOLIDAY_PAID|ДАТА|НАЗВАНИЕ — объявить ОПЛАЧИВАЕМЫЙ выходной для всех (за счёт компании)
+- DECLARE_HOLIDAY_UNPAID|ДАТА|НАЗВАНИЕ — объявить НЕОПЛАЧИВАЕМЫЙ выходной для всех
+- CANCEL_HOLIDAY|ДАТА — отменить ранее объявленный праздник
+- GIVE_BONUS|ID_СОТРУДНИКА|СУММА|ПРИЧИНА — выдать ЛИЧНУЮ премию сотруднику (видит только он)
+- CANCEL_BONUS|ID_ПРЕМИИ — отменить премию по её ID
+- NONE — обычный ответ без действия
+
+🔴 СУПЕРВАЖНО ПРО ОФИЦИАЛЬНЫЕ ПРАЗДНИКИ РФ:
+Если админ упоминает официальный праздник РФ (1 января, 23 февраля, 8 марта, 1 мая, 9 мая, 12 июня, 4 ноября) — НЕ предполагай что это выходной! Спроси у админа: "Производство работает в этот день или нет?"
+
+ШАГ 1: Если работаем — НЕ объявляй выходной, отметь что это обычный рабочий день.
+ШАГ 2: Если НЕ работаем — спроси какой тип выходного:
+   - 💰 ОПЛАЧИВАЕМЫЙ (за счёт компании) — зарплата начисляется
+   - 🚫 НЕОПЛАЧИВАЕМЫЙ — зарплата не начисляется
+
+ПРИМЕР:
+Админ: "Завтра 9 мая"
+ACTION: NONE
+TEXT: 🎖 Завтра 9 мая (День Победы) — официальный праздник РФ. На производстве "Секреты Кавказа" работаем в этот день или нет?\n\nЕсли НЕ работаем — какой тип выходного:\n💰 ОПЛАЧИВАЕМЫЙ (за счёт компании)\n🚫 НЕОПЛАЧИВАЕМЫЙ
+
+Админ: "Не работаем, оплачиваемый"
+ACTION: DECLARE_HOLIDAY_PAID|2026-05-09|День Победы
+TEXT: ✅ Объявил 9 мая (День Победы) как ОПЛАЧИВАЕМЫЙ выходной за счёт компании. Все 18 сотрудников получат день как отработанный.
+
+Админ: "Работаем"
+ACTION: NONE
+TEXT: 👍 Понял, 9 мая — обычный рабочий день. Сотрудники приходят как обычно.
+
+🎁 ПРО ЛИЧНЫЕ ПРЕМИИ:
+Когда админ хочет дать премию сотруднику ("Дай Денису 5000 премии", "Премируй Оксану на 3000 за переработки"):
+
+ШАГ 1: Уточни если непонятно — кому именно (если несколько Оксан) и за что
+ШАГ 2: Используй команду GIVE_BONUS|ID|СУММА|ПРИЧИНА
+ШАГ 3: Премия будет видна ТОЛЬКО этому сотруднику в его профиле — другие не увидят
+
+ПРИМЕР:
+Админ: "Дай Денису премию 5000 за хорошую работу"
+ACTION: GIVE_BONUS|1|5000|За хорошую работу
+TEXT: ✅ Денис получил премию 5000 ₽ "За хорошую работу". Премия видна только ему в его личном кабинете.
+
+Админ: "Премируй Елену 3000 за переработки в апреле"
+ACTION: GIVE_BONUS|8|3000|За переработки в апреле
+TEXT: ✅ Елена получила премию 3000 ₽ "За переработки в апреле". Видна только ей.
+
+🔴 СУПЕРВАЖНО ПРО ВЫХОДНЫЕ КОТОРЫЕ ЯВНО НЕ ОФИЦИАЛЬНЫЕ:
+Если админ говорит просто "сделай 15 июня выходным" (не официальный праздник) — спроси какой тип:
+ACTION: NONE
+TEXT: 📅 Сделать 15 июня выходным днём для всех. Какой тип?\n💰 ОПЛАЧИВАЕМЫЙ\n🚫 НЕОПЛАЧИВАЕМЫЙ
+
+ФОРМАТ ДАТЫ: ГГГГ-ММ-ДД (например 2026-05-09)
+ТЕКУЩИЙ ГОД: ${THIS_YEAR}
+
+ФОРМАТ ОТВЕТА (СТРОГО):
+ACTION: <команда или NONE>
+TEXT: <ответ админу>
+
 ПРАВИЛА:
 - Отвечай коротко, по делу, на русском
 - Используй цифры из данных, не выдумывай
 - Если просят топ — называй 3-5 человек с конкретными цифрами
 - Используй эмодзи для наглядности (🥇🥈🥉⚠️✅)
-- Если данных нет — говори честно "пока нет данных"`;
+- Если данных нет — говори честно "пока нет данных"
+- НИКОГДА не предполагай нерабочий день без явного подтверждения админа`;
 }
 
 async function sendAIAdminMessage(text){
@@ -4111,14 +4796,203 @@ async function sendAIAdminMessage(text){
     }
 
     const aiText = data.choices?.[0]?.message?.content || 'Не понял вопрос';
+
+    // ── Парсинг ACTION/TEXT для команд праздников ──
+    let displayText = aiText;
+    let actionToExecute = null;
+
+    const actionMatch = aiText.match(/ACTION:\s*([^\n]+)/i);
+    const textMatch = aiText.match(/TEXT:\s*([\s\S]+?)(?=\n*$|ACTION:)/i);
+
+    if(actionMatch && textMatch){
+      actionToExecute = actionMatch[1].trim();
+      displayText = textMatch[1].trim();
+    }
+
     aiAdminHistory.push({role: 'assistant', text: aiText});
-    addAIAdminMessage(aiText, 'bot');
-    speakAIResponse(aiText);
+    addAIAdminMessage(displayText, 'bot');
+    speakAIResponse(displayText);
+
+    // Выполняем команду если она не NONE
+    if(actionToExecute && actionToExecute !== 'NONE'){
+      executeAdminAIAction(actionToExecute);
+    }
   } catch(e){
     R(typingId)?.remove();
     addAIAdminMessage('❌ Не удалось получить ответ', 'bot', 'ai-error');
     console.warn('AI admin error:', e);
   }
+}
+
+// ══════════════════════════════════════════════════════
+//  ПРАЗДНИКИ КОМПАНИИ — ОБЪЯВЛЕНИЕ ВЫХОДНЫХ ДЛЯ ВСЕХ
+// ══════════════════════════════════════════════════════
+let companyHolidays = []; // [{date:'2026-05-09', name:'9 мая', paid:true, declaredAt:ISO}]
+let bonuses = [];         // [{id, empId, empName, amount, reason, date, createdAt}]
+
+function executeAdminAIAction(action){
+  // DECLARE_HOLIDAY_PAID|2026-05-09|День Победы
+  // DECLARE_HOLIDAY_UNPAID|2026-06-01|День защиты детей
+  // CANCEL_HOLIDAY|2026-05-09
+
+  const parts = action.split('|').map(p => p.trim());
+  const cmd = parts[0];
+
+  if(cmd === 'DECLARE_HOLIDAY_PAID' || cmd === 'DECLARE_HOLIDAY_UNPAID'){
+    const date = parts[1];
+    const name = parts[2] || 'Праздничный выходной';
+    const paid = (cmd === 'DECLARE_HOLIDAY_PAID');
+
+    if(!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)){
+      addAIAdminMessage('❌ Неверный формат даты. Нужно ГГГГ-ММ-ДД', 'bot', 'ai-error');
+      return;
+    }
+
+    // Проверка дубликата
+    if(!Array.isArray(companyHolidays)) companyHolidays = [];
+    const existing = companyHolidays.find(h => h.date === date);
+    if(existing){
+      // Обновим существующий
+      existing.name = name;
+      existing.paid = paid;
+      existing.declaredAt = new Date().toISOString();
+    } else {
+      companyHolidays.push({
+        date, name, paid,
+        declaredAt: new Date().toISOString()
+      });
+    }
+
+    saveData();
+    renderHome();
+
+    // Уведомление всем сотрудникам в Telegram
+    const dateStr = date.split('-').reverse().join('.');
+    const typeLabel = paid ? '💰 ОПЛАЧИВАЕМЫЙ (за счёт компании)' : '🚫 НЕОПЛАЧИВАЕМЫЙ';
+    const msg = `🏔️ <b>Секреты Кавказа</b>\n\n🎉 Объявлен праздничный выходной для всех:\n\n📅 <b>${dateStr}</b>\n🎊 <b>${name}</b>\n${typeLabel}\n\n${paid ? 'День засчитывается как отработанный, зарплата идёт.' : 'Зарплата за этот день не начисляется.'}`;
+
+    employees.forEach(emp => {
+      if(emp.tgId) notifyEmployee(emp.id, msg);
+    });
+
+    toast(`✅ Праздник объявлен: ${dateStr} — ${name} (${paid ? 'оплачиваемый' : 'неоплачиваемый'})`);
+  }
+
+  else if(cmd === 'CANCEL_HOLIDAY'){
+    const date = parts[1];
+    if(!Array.isArray(companyHolidays)) companyHolidays = [];
+    const before = companyHolidays.length;
+    companyHolidays = companyHolidays.filter(h => h.date !== date);
+
+    if(companyHolidays.length < before){
+      saveData();
+      renderHome();
+      const dateStr = date.split('-').reverse().join('.');
+      toast(`✅ Праздник на ${dateStr} отменён`);
+
+      // Уведомление сотрудникам
+      employees.forEach(emp => {
+        if(emp.tgId){
+          notifyEmployee(emp.id, `🏔️ <b>Секреты Кавказа</b>\n\n❌ Праздничный выходной на ${dateStr} ОТМЕНЁН. День становится обычным рабочим.`);
+        }
+      });
+    } else {
+      toast(`Праздник на эту дату не найден`, true);
+    }
+  }
+
+  // ── ВЫДАЧА ЛИЧНОЙ ПРЕМИИ ──
+  else if(cmd === 'GIVE_BONUS'){
+    const empId = parseInt(parts[1]);
+    const amount = parseInt(parts[2]);
+    const reason = parts[3] || 'Премия';
+
+    const emp = employees.find(e => e.id === empId);
+    if(!emp){
+      addAIAdminMessage('❌ Сотрудник не найден', 'bot', 'ai-error');
+      return;
+    }
+    if(!amount || amount <= 0){
+      addAIAdminMessage('❌ Неверная сумма премии', 'bot', 'ai-error');
+      return;
+    }
+
+    if(!Array.isArray(bonuses)) bonuses = [];
+    const bonus = {
+      id: Date.now() + Math.random(),
+      empId: empId,
+      empName: emp.name,
+      amount: amount,
+      reason: reason,
+      date: new Date().toLocaleDateString('ru-RU'),
+      createdAt: new Date().toISOString()
+    };
+    bonuses.push(bonus);
+    saveData();
+
+    toast(`✅ Премия ${amount} ₽ выдана: ${emp.name}`);
+
+    // Уведомление сотруднику в Telegram (только ему)
+    notifyEmployee(empId, `🏔️ <b>Секреты Кавказа</b>\n\n🎁 <b>Вам выдана премия!</b>\n\n💰 <b>${amount} ₽</b>\n📝 ${reason}\n\n🤐 Это личное уведомление — другие сотрудники не видят размер вашей премии.`);
+  }
+
+  // ── ОТМЕНА ПРЕМИИ ──
+  else if(cmd === 'CANCEL_BONUS'){
+    const bonusId = parseFloat(parts[1]);
+    if(!Array.isArray(bonuses)) bonuses = [];
+    const bonus = bonuses.find(b => b.id === bonusId);
+    if(!bonus){
+      addAIAdminMessage('❌ Премия не найдена', 'bot', 'ai-error');
+      return;
+    }
+    bonuses = bonuses.filter(b => b.id !== bonusId);
+    saveData();
+    toast(`✅ Премия отменена: ${bonus.empName} — ${bonus.amount} ₽`);
+    notifyEmployee(bonus.empId, `🏔️ <b>Секреты Кавказа</b>\n\n❌ Ранее выданная премия ${bonus.amount} ₽ отменена.`);
+  }
+}
+
+// Проверка является ли день оплачиваемым праздником
+function isPaidHoliday(year, month, day){
+  if(!Array.isArray(companyHolidays)) return false;
+  const dateStr = year+'-'+String(month+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+  return companyHolidays.some(h => h.date === dateStr && h.paid);
+}
+
+// Проверка является ли день неоплачиваемым праздником
+function isUnpaidHoliday(year, month, day){
+  if(!Array.isArray(companyHolidays)) return false;
+  const dateStr = year+'-'+String(month+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+  return companyHolidays.some(h => h.date === dateStr && !h.paid);
+}
+
+// Получить инфо о празднике на дату
+function getHolidayInfo(year, month, day){
+  if(!Array.isArray(companyHolidays)) return null;
+  const dateStr = year+'-'+String(month+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+  return companyHolidays.find(h => h.date === dateStr) || null;
+}
+
+// Отмена праздника — кнопка ✕ в карточке
+function cancelHoliday(dateStr){
+  if(!Array.isArray(companyHolidays)) return;
+  const h = companyHolidays.find(x => x.date === dateStr);
+  if(!h) return;
+  if(!confirm(`Отменить праздник "${h.name}" на ${dateStr.split('-').reverse().join('.')}?`)) return;
+
+  companyHolidays = companyHolidays.filter(x => x.date !== dateStr);
+  saveData();
+  renderHome();
+
+  const ds = dateStr.split('-').reverse().join('.');
+  toast(`✅ Праздник на ${ds} отменён`);
+
+  // Уведомляем сотрудников
+  employees.forEach(emp => {
+    if(emp.tgId){
+      notifyEmployee(emp.id, `🏔️ <b>Секреты Кавказа</b>\n\n❌ Праздничный выходной на ${ds} ОТМЕНЁН. День становится обычным рабочим.`);
+    }
+  });
 }
 
 function addAIAdminMessage(text, role, extraClass){
