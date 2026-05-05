@@ -977,6 +977,11 @@ table.wl .wl-total td{background:var(--blue);color:#fff!important;font-weight:80
       </select>
     </div>
     <div class="field"><label>Новый пароль (пусто = не менять)</label><input class="form-input" id="ee-pass" type="password" placeholder="Оставьте пустым"></div>
+    <div class="field" style="background:#eef4fb;border-radius:10px;padding:10px;margin-top:8px">
+      <label style="color:var(--blue);font-weight:700">📷 ID на биометрическом терминале</label>
+      <input class="form-input" id="ee-termid" type="number" placeholder="Например: 1" style="margin-top:4px">
+      <div style="font-size:11px;color:var(--gray);margin-top:4px">Это число должно совпадать с User ID на терминале ZKTeco SpeedFace. Когда сотрудник отметится лицом — система откроет ему смену автоматически.</div>
+    </div>
     <button class="btn btn-green" onclick="saveEditEmp()">✅ Сохранить</button>
     <button class="btn btn-ghost" style="margin-top:8px" onclick="closeModal('m-edit-emp')">Отмена</button>
   </div>
@@ -1578,9 +1583,10 @@ function renderStaff(){
     return`<div class="card"><div class="card-head">${fL[f]}</div>
       ${g.map(e=>{
         const{gross}=calcPay(e); const st=todaySt(e.id);
+        const termBadge = e.terminalId ? `<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">📷 ${e.terminalId}</span>` : '';
         return`<div class="list-item" onclick="openEditEmp(${e.id})">
           <div class="avatar av-blue">${e.name[0]}</div>
-          <div class="item-main"><div class="item-name">${e.name}</div>
+          <div class="item-main"><div class="item-name">${e.name}${termBadge}</div>
             <div class="item-sub">Оклад ${money(e.salary)} · Вс: ${e.sg==='odd'?'нечётные':'чётные'}</div></div>
           <div class="item-right">
             <div class="badge ${st==='done'?'b-green':st==='working'?'b-orange':'b-gray'}" style="margin-bottom:4px">${st==='done'?'Отработал':st==='working'?'На работе':'—'}</div>
@@ -1761,6 +1767,7 @@ function openEditEmp(id){
   R('edit-modal-name').textContent=emp.name; R('edit-emp-id').value=id;
   R('ee-name').value=emp.name; R('ee-salary').value=emp.salary;
   R('ee-floor').value=emp.floor; R('ee-sun').value=emp.sg; R('ee-pass').value='';
+  R('ee-termid').value = emp.terminalId || '';
   R('ee-preview').style.display='none';
   openModal('m-edit-emp');
 }
@@ -1781,6 +1788,7 @@ function saveEditEmp(){
   const floorVal=R('ee-floor').value;
   const sgVal=R('ee-sun').value;
   const passVal=R('ee-pass').value.trim();
+  const termIdVal=R('ee-termid').value.trim();
 
   // Применяем только то что заполнено
   if(nameVal)  emp.name=nameVal;
@@ -1788,6 +1796,12 @@ function saveEditEmp(){
   if(floorVal) emp.floor=floorVal;
   if(sgVal)    emp.sg=sgVal;
   if(passVal.length>=4) emp.pass=passVal;
+  // terminalId — может быть пустым (тогда удаляем привязку)
+  if(termIdVal === ''){
+    delete emp.terminalId;
+  } else {
+    emp.terminalId = parseInt(termIdVal);
+  }
 
   closeModal('m-edit-emp');
 
